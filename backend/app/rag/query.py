@@ -29,7 +29,8 @@ print("ChromaDB Loaded!")
 print("\nSTEP 3: Loading Mistral Model...")
 
 llm = OllamaLLM(
-    model="mistral"
+    model="qwen2.5:1.5b",
+    temperature=0
 )
 
 print("Mistral Loaded!")
@@ -47,7 +48,7 @@ def ask_policy(query):
     # STEP 4: Retrieve Relevant Chunks
     print("\nSTEP 4: Searching ChromaDB...")
 
-    results = db.similarity_search(query, k=1)
+    results = db.similarity_search(query, k=2)
 
     print(f"{len(results)} chunk retrieved.")
 
