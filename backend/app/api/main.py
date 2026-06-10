@@ -5,6 +5,13 @@ from app.services.claim_service import (
     get_claim_status,
     update_claim_status
 )
+from app.services.rag_service import ask_policy
+
+from app.services.policy_service import (
+    get_user_policies,
+    get_policy_document
+)
+
 
 app = FastAPI()
 
@@ -67,3 +74,33 @@ def update_status(
         "claim_id": claim_id,
         "status": status
     }
+
+
+@app.post("/ask-policy")
+def ask_policy_api(request: dict):
+
+    policy_id = request["policy_id"]
+    question = request["question"]
+
+    answer = ask_policy(
+        policy_id,
+        question
+    )
+
+    return {
+        "policy_id": policy_id,
+        "question": question,
+        "answer": answer
+    }
+
+@app.get("/policies/{policy_id}/document")
+def get_document(policy_id: int):
+
+    document = get_policy_document(policy_id)
+
+    if document is None:
+        return {
+            "message": "Policy document not found"
+        }
+
+    return document

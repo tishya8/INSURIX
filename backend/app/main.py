@@ -9,7 +9,10 @@ def home():
 @app.post("/policy/query")
 def policy_query(question: str):
 
-    answer = ask_policy(question)
+    answer = ask_policy(
+        1,
+        question
+    )
 
     return {
         "question": question,
