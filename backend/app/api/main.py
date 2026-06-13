@@ -12,6 +12,8 @@ from app.services.policy_service import (
     get_policy_document
 )
 
+from app.services.intent_service import detect_intent
+
 
 app = FastAPI()
 
@@ -82,15 +84,46 @@ def ask_policy_api(request: dict):
     policy_id = request["policy_id"]
     question = request["question"]
 
-    answer = ask_policy(
-        policy_id,
-        question
-    )
+    # Detect Intent
+    intent = detect_intent(question)
+
+    print("\nDetected Intent:", intent)
+
+    if intent == "POLICY_QUERY":
+
+        answer = ask_policy(
+            policy_id,
+            question
+        )
+
+        return {
+            "intent": intent,
+            "policy_id": policy_id,
+            "question": question,
+            "answer": answer
+        }
+
+    elif intent == "CREATE_CLAIM":
+
+        return {
+            "intent": intent,
+            "message": "Claim Creation Workflow Triggered"
+        }
+
+    elif intent == "TRACK_CLAIM":
+
+        claim_id = request["claim_id"]
+
+        claim = get_claim_status(claim_id)
+
+        return {
+            "intent": intent,
+            "claim": claim
+        }
 
     return {
-        "policy_id": policy_id,
-        "question": question,
-        "answer": answer
+        "intent": "UNKNOWN",
+        "message": "Could not determine user intent"
     }
 
 @app.get("/policies/{policy_id}/document")
