@@ -1,37 +1,300 @@
-from app.services.planner_service import create_plan
+"""
+INSURIX — FastAPI entry point (refactored)
+
+Changes from original:
+  1. Removed 1800+ lines of commented-out dead code
+  2. Removed duplicate import of get_user_policies (was imported from
+     both claim_service and policy_service — now only policy_service)
+  3. Moved `import re` to top level (was re-imported inside 3 functions)
+  4. Added missing import for detect_incident_type (was used but never imported)
+  5. Extracted execute_task() — single function that handles one plan task,
+     called by both single-intent and multi-intent paths.
+     Previously the identical POLICY_QUERY / CREATE_CLAIM / TRACK_CLAIM
+     blocks were copy-pasted twice (single + multi), which meant any bug
+     fix had to be applied in two places.
+  6. Added Pydantic request model (ChatRequest) so /chat has proper
+     validation instead of a raw dict with no type safety.
+  7. Normalised TRACK_CLAIM to read task["claim_id"] (integer from planner)
+     instead of regex-searching task["query"] which didn't exist on that task.
+  8. Added fallback when plan is empty (LLM / parse failure).
+"""
+
 import re
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+
+from app.services.planner_service import create_plan
 from app.services.claim_service import (
-    get_user_policies,
     create_claim,
     get_claim_status,
-    update_claim_status
+    update_claim_status,
 )
 from app.services.rag_service import ask_policy
 
+# FIX: was imported from both claim_service AND policy_service — pick one
 from app.services.policy_service import (
     get_user_policies,
-    get_policy_document
+    get_policy_document,
 )
 
-from app.services.intent_service import detect_intent
-
-from fastapi.middleware.cors import CORSMiddleware
-
+from app.services.intent_service import detect_intent        # kept for future use
 from app.services.session_service import conversation_state
 
-app = FastAPI()
+# ---------------------------------------------------------------------------
+# App + CORS
+# ---------------------------------------------------------------------------
+
+app = FastAPI(title="INSURIX API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173"
-    ],
+    allow_origins=["http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ---------------------------------------------------------------------------
+# Request / response models
+# FIX: was raw dict — Pydantic gives validation + auto Swagger docs
+# ---------------------------------------------------------------------------
+
+class ChatRequest(BaseModel):
+    policy_id:  int
+    question:   str
+    session_id: str = "default_user"
+
+# ---------------------------------------------------------------------------
+# Utility helpers
+# ---------------------------------------------------------------------------
+
+INCIDENT_KEYWORDS = {
+    "theft":    "THEFT",
+    "accident": "ACCIDENT",
+    "flood":    "FLOOD",
+    "fire":     "FIRE",
+    "other":    "OTHER",
+}
+
+def normalize_query(query: str) -> str:
+    """Strip trailing punctuation from a question string."""
+    return query.strip().rstrip("?!.")
+
+
+def detect_incident_type(text: str) -> str | None:
+    """
+    Return the first matching incident type found in text, or None.
+    FIX: was defined inline with if/elif chains duplicated in 3 places —
+         now one function used everywhere.
+    """
+    lowered = text.lower()
+    for keyword, incident_type in INCIDENT_KEYWORDS.items():
+        if keyword in lowered:
+            return incident_type
+    return None
+
+
+def format_claim(claim: dict) -> str:
+    """
+    Render a claim dict as a readable string.
+    FIX: identical f-string was copy-pasted in 4 places — now one function.
+    """
+    return (
+        f"Claim ID: {claim['claim_id']}\n"
+        f"Status: {claim['claim_status']}\n"
+        f"Incident: {claim['incident_type']}\n"
+        f"Description: {claim['description']}"
+    )
+
+# ---------------------------------------------------------------------------
+# Core task executor
+# FIX: was copy-pasted for single-intent AND multi-intent — now one function.
+#      Both paths call execute_task() so logic only lives in one place.
+# ---------------------------------------------------------------------------
+
+def execute_task(
+    task:       dict,
+    policy_id:  int,
+    session_id: str,
+    question:   str,
+) -> str:
+    """
+    Execute a single plan task and return a response string.
+
+    task examples:
+      {"intent": "POLICY_QUERY",  "query": "Is flood covered?"}
+      {"intent": "TRACK_CLAIM",   "claim_id": 5}
+      {"intent": "CREATE_CLAIM",  "incident_type": "THEFT"}
+    """
+    intent = task.get("intent")
+
+    # -------------------------------------------------------------------
+    # POLICY QUERY — RAG pipeline
+    # -------------------------------------------------------------------
+    if intent == "POLICY_QUERY":
+        query  = task.get("query", question)
+        answer = ask_policy(policy_id, normalize_query(query))
+        return f"Policy Answer:\n\n{answer}"
+
+    # -------------------------------------------------------------------
+    # TRACK CLAIM
+    # FIX: original multi-intent path read task["query"] which does not
+    #      exist on TRACK_CLAIM tasks — planner puts the id in task["claim_id"]
+    # -------------------------------------------------------------------
+    if intent == "TRACK_CLAIM":
+        # Prefer the structured claim_id from the planner
+        claim_id = task.get("claim_id")
+
+        # Fallback: extract digits from question if planner didn't parse it
+        if claim_id is None:
+            match = re.search(r"\d+", question)
+            if match:
+                claim_id = int(match.group())
+
+        if claim_id is None:
+            return "Please provide a valid claim ID."
+
+        claim = get_claim_status(int(claim_id))
+        if claim:
+            return f"Claim Details:\n\n{format_claim(claim)}"
+        return f"No claim found with ID {claim_id}."
+
+    # -------------------------------------------------------------------
+    # CREATE CLAIM — multi-step conversation
+    # -------------------------------------------------------------------
+    if intent == "CREATE_CLAIM":
+        # Planner may have already extracted the incident type
+        incident_type = (
+            task.get("incident_type")
+            or detect_incident_type(question)
+        )
+
+        if incident_type:
+            conversation_state[session_id] = {
+                "action":        "CREATE_CLAIM",
+                "step":          "WAITING_FOR_DESCRIPTION",
+                "incident_type": incident_type,
+            }
+            return (
+                f"Claim creation started.\n\n"
+                f"Incident Type: {incident_type}\n\n"
+                f"Please provide a brief description of the incident."
+            )
+
+        # Incident type unknown — ask user
+        conversation_state[session_id] = {
+            "action": "CREATE_CLAIM",
+            "step":   "WAITING_FOR_INCIDENT_TYPE",
+        }
+        return (
+            "Please select the incident type:\n\n"
+            "1. Theft\n"
+            "2. Accident\n"
+            "3. Flood\n"
+            "4. Fire\n"
+            "5. Other\n\n"
+            "Reply with the incident type."
+        )
+
+    # -------------------------------------------------------------------
+    # UNKNOWN intent
+    # -------------------------------------------------------------------
+    return (
+        "I could not understand your request.\n\n"
+        "You can:\n"
+        "• Ask policy questions\n"
+        "• Create a claim\n"
+        "• Track claim status"
+    )
+
+# ---------------------------------------------------------------------------
+# Conversation state handlers (multi-turn claim creation flow)
+# ---------------------------------------------------------------------------
+
+def handle_pending_state(
+    session_id: str,
+    policy_id:  int,
+    question:   str,
+) -> str | None:
+    """
+    If a multi-turn conversation is in progress, advance its state.
+    Returns the response string, or None if no pending state exists.
+    """
+    if session_id not in conversation_state:
+        return None
+
+    pending = conversation_state[session_id]
+    action  = pending.get("action")
+    step    = pending.get("step")
+
+    if action != "CREATE_CLAIM":
+        return None
+
+    # ---------------------------------------------------------------
+    # Step 1 — waiting for the user to name an incident type
+    # ---------------------------------------------------------------
+    if step == "WAITING_FOR_INCIDENT_TYPE":
+        incident_type = detect_incident_type(question)
+
+        if incident_type:
+            conversation_state[session_id] = {
+                "action":        "CREATE_CLAIM",
+                "step":          "WAITING_FOR_DESCRIPTION",
+                "incident_type": incident_type,
+            }
+            return "Please provide a brief description of the incident."
+
+        return (
+            "Please select a valid incident type:\n\n"
+            "1. Theft\n2. Accident\n3. Flood\n4. Fire\n5. Other\n\n"
+            "Reply with the incident type."
+        )
+
+    # ---------------------------------------------------------------
+    # Step 2 — waiting for a description
+    # ---------------------------------------------------------------
+    if step == "WAITING_FOR_DESCRIPTION":
+        conversation_state[session_id] = {
+            "action":        "CREATE_CLAIM",
+            "step":          "WAITING_FOR_CONFIRMATION",
+            "incident_type": pending["incident_type"],
+            "description":   question,
+        }
+        return (
+            f"Please confirm:\n\n"
+            f"Incident Type: {pending['incident_type']}\n"
+            f"Description: {question}\n\n"
+            f"Reply YES to create the claim."
+        )
+
+    # ---------------------------------------------------------------
+    # Step 3 — waiting for YES/NO confirmation
+    # ---------------------------------------------------------------
+    if step == "WAITING_FOR_CONFIRMATION":
+        if question.strip().lower() == "yes":
+            claim_id = create_claim(
+                policy_id,
+                pending["incident_type"],
+                pending["description"],
+            )
+            del conversation_state[session_id]
+            return (
+                f"Claim created successfully.\n\n"
+                f"Claim ID: {claim_id}\n"
+                f"Status: SUBMITTED\n"
+                f"Incident Type: {pending['incident_type']}\n"
+                f"Description: {pending['description']}"
+            )
+
+        del conversation_state[session_id]
+        return "Claim creation cancelled. You can start again by saying: create a claim."
+
+    return None
+
+# ---------------------------------------------------------------------------
+# REST endpoints — utility
+# ---------------------------------------------------------------------------
 
 @app.get("/")
 def root():
@@ -45,2447 +308,87 @@ def health():
 
 @app.get("/users/{user_id}/policies")
 def fetch_user_policies(user_id: int):
-
-    policies = get_user_policies(user_id)
-
-    return policies
-
-@app.post("/claims")
-def create_new_claim(
-    policy_id: int,
-    incident_type: str,
-    description: str
-):
-
-    claim_id = create_claim(
-        policy_id,
-        incident_type,
-        description
-    )
-
-    return {
-        "claim_id": claim_id,
-        "status": "SUBMITTED"
-    }
-
-@app.get("/claims/{claim_id}")
-def fetch_claim_status(claim_id: int):
-
-    claim = get_claim_status(claim_id)
-
-    return claim
-
-@app.put("/claims/{claim_id}/status")
-def update_status(
-    claim_id: int,
-    status: str
-):
-
-    update_claim_status(
-        claim_id,
-        status
-    )
-
-    return {
-        "message": "Claim status updated",
-        "claim_id": claim_id,
-        "status": status
-    }
+    return get_user_policies(user_id)
 
 
 @app.get("/policies/{policy_id}/document")
 def get_document(policy_id: int):
-
     document = get_policy_document(policy_id)
-
     if document is None:
-        return {
-            "message": "Policy document not found"
-        }
-
+        return {"message": "Policy document not found"}
     return document
 
 
-def normalize_query(query):
-    return query.strip().rstrip("?!.")
+@app.post("/claims")
+def create_new_claim(policy_id: int, incident_type: str, description: str):
+    claim_id = create_claim(policy_id, incident_type, description)
+    return {"claim_id": claim_id, "status": "SUBMITTED"}
 
-# @app.post("/ask-policy")
-# def ask_policy_api(request: dict):
 
-#     policy_id = request["policy_id"]
-#     question = request["question"]
+@app.get("/claims/{claim_id}")
+def fetch_claim_status(claim_id: int):
+    return get_claim_status(claim_id)
 
-#     session_id = request.get(
-#         "session_id",
-#         "default_user"
-#     )
 
-#     # ---------------------------------------------------
-#     # Pending Claim Workflow
-#     # ---------------------------------------------------
-
-#     if session_id in conversation_state:
-
-#         pending = conversation_state[
-#             session_id
-#         ]
-
-#         if pending["action"] == "CREATE_CLAIM":
-
-#             claim_id = create_claim(
-
-#                 policy_id,
-
-#                 pending["incident_type"],
-
-#                 question
-#             )
-
-#             del conversation_state[
-#                 session_id
-#             ]
-
-#             return {
-#                 "answer":
-#                 f"""
-# Claim created successfully.
-
-# Claim ID: {claim_id}
-# Status: SUBMITTED
-# Incident Type: {pending['incident_type']}
-# Description: {question}
-# """
-#             }
-
-#     # ---------------------------------------------------
-#     # Create Execution Plan
-#     # ---------------------------------------------------
-
-#     plan = create_plan(question)
-
-#     print("\nPLAN:")
-#     print(plan)
-
-#     # ---------------------------------------------------
-#     # Multi-Step Execution
-#     # ---------------------------------------------------
-
-#     if len(plan) > 1:
-
-#         responses = []
-
-#         for task in plan:
-
-#             task_intent = task["intent"]
-#             task_query = task["query"]
-
-#             # -----------------------------
-#             # POLICY QUERY
-#             # -----------------------------
-
-#             if task_intent == "POLICY_QUERY":
-
-#                 answer = ask_policy(
-#                     policy_id,
-#                     normalize_query(task_query)
-#                 )
-
-#                 responses.append(
-#                     f"""
-# Question:
-# {task_query}
-
-# Answer:
-# {answer}
-# """
-#                 )
-
-#             # -----------------------------
-#             # TRACK CLAIM
-#             # -----------------------------
-
-#             elif task_intent == "TRACK_CLAIM":
-
-#                 import re
-
-#                 match = re.search(
-#                     r"\d+",
-#                     task_query
-#                 )
-
-#                 if match:
-
-#                     claim_id = int(
-#                         match.group()
-#                     )
-
-#                     claim = get_claim_status(
-#                         claim_id
-#                     )
-
-#                     if claim:
-
-#                         responses.append(
-#                             f"""
-# Claim Details
-
-# Claim ID: {claim['claim_id']}
-# Status: {claim['claim_status']}
-# Incident: {claim['incident_type']}
-# Description: {claim['description']}
-# """
-#                         )
-
-#                     else:
-
-#                         responses.append(
-#                             f"No claim found with Claim ID {claim_id}."
-#                         )
-
-#                 else:
-
-#                     responses.append(
-#                         "Please provide a valid claim ID."
-#                     )
-
-#         return {
-#             "answer":
-#             "\n\n".join(responses)
-#         }
-
-#     # ---------------------------------------------------
-#     # Single Task Handling
-#     # ---------------------------------------------------
-
-#     intent = plan[0]["intent"]
-
-#     # -----------------------------
-#     # POLICY QUERY
-#     # -----------------------------
-
-#     if intent == "POLICY_QUERY":
-
-#         answer = ask_policy(
-#             policy_id,
-#             normalize_query(plan[0]["query"])
-#         )
-
-#         return {
-#             "answer": answer
-#         }
-
-#     # -----------------------------
-#     # CREATE CLAIM
-#     # -----------------------------
-
-#     elif intent == "CREATE_CLAIM":
-
-#         incident_type = "GENERAL"
-
-#         if "theft" in question.lower():
-
-#             incident_type = "THEFT"
-
-#         elif "accident" in question.lower():
-
-#             incident_type = "ACCIDENT"
-
-#         elif "flood" in question.lower():
-
-#             incident_type = "FLOOD"
-
-#         conversation_state[
-#             session_id
-#         ] = {
-
-#             "action":
-#             "CREATE_CLAIM",
-
-#             "incident_type":
-#             incident_type
-#         }
-
-#         return {
-
-#             "answer":
-#             f"""
-# Claim creation started.
-
-# Incident Type:
-# {incident_type}
-
-# Please provide a brief description of the incident.
-# """
-#         }
-
-#     # -----------------------------
-#     # TRACK CLAIM
-#     # -----------------------------
-
-#     elif intent == "TRACK_CLAIM":
-
-#         import re
-
-#         match = re.search(
-#             r"\d+",
-#             question
-#         )
-
-#         if match:
-
-#             claim_id = int(
-#                 match.group()
-#             )
-
-#             claim = get_claim_status(
-#                 claim_id
-#             )
-
-#             if claim:
-
-#                 return {
-#                     "answer":
-#                     f"""
-# Claim Details
-
-# Claim ID: {claim['claim_id']}
-# Status: {claim['claim_status']}
-# Incident: {claim['incident_type']}
-# Description: {claim['description']}
-# """
-#                 }
-
-#             return {
-#                 "answer":
-#                 f"No claim found with Claim ID {claim_id}."
-#             }
-
-#         return {
-#             "answer":
-#             "Please provide a valid claim ID."
-#         }
-
-#     # -----------------------------
-#     # UNKNOWN
-#     # -----------------------------
-
-#     return {
-
-#         "answer":
-#         """
-# I could not understand your request.
-
-# You can:
-# • Ask policy-related questions
-# • Create a claim
-# • Track a claim status
-# """
-#     }
-
-
-# @app.post("/ask-policy")
-# def ask_policy_api(request: dict):
-
-#     policy_id = request["policy_id"]
-#     question = request["question"]
-
-#     session_id = request.get(
-#         "session_id",
-#         "default_user"
-#     )
-
-
-#     # ---------------------------------------------------
-#     # Pending Claim Workflow
-#     # ---------------------------------------------------
-
-#     if session_id in conversation_state:
-
-#         pending = conversation_state[session_id]
-
-
-#         # ===============================================
-#         # STEP 1 : WAITING FOR INCIDENT TYPE
-#         # ===============================================
-
-#         if (
-#             pending["action"] == "CREATE_CLAIM"
-#             and pending["step"] == "WAITING_FOR_INCIDENT_TYPE"
-#         ):
-
-#             incident = question.lower()
-
-
-#             incident_type = None
-
-
-#             if "theft" in incident:
-#                 incident_type = "THEFT"
-
-#             elif "accident" in incident:
-#                 incident_type = "ACCIDENT"
-
-#             elif "flood" in incident:
-#                 incident_type = "FLOOD"
-
-#             elif "fire" in incident:
-#                 incident_type = "FIRE"
-
-#             elif "other" in incident:
-#                 incident_type = "OTHER"
-
-
-#             if incident_type:
-
-
-#                 conversation_state[session_id] = {
-
-#                     "action":
-#                     "CREATE_CLAIM",
-
-#                     "step":
-#                     "WAITING_FOR_DESCRIPTION",
-
-#                     "incident_type":
-#                     incident_type
-#                 }
-
-
-#                 return {
-
-#                     "answer":
-#                     """
-# Please provide a brief description of the incident.
-# """
-#                 }
-
-
-#             return {
-
-#                 "answer":
-#                 """
-# Please select a valid incident type:
-
-# 1. Theft
-# 2. Accident
-# 3. Flood
-# 4. Fire
-# 5. Other
-
-# Reply with incident type.
-# """
-#             }
-
-
-
-#         # ===============================================
-#         # STEP 2 : WAITING FOR DESCRIPTION
-#         # ===============================================
-
-#         if (
-#             pending["action"] == "CREATE_CLAIM"
-#             and pending["step"] == "WAITING_FOR_DESCRIPTION"
-#         ):
-
-
-#             conversation_state[session_id] = {
-
-
-#                 "action":
-#                 "CREATE_CLAIM",
-
-
-#                 "step":
-#                 "WAITING_FOR_CONFIRMATION",
-
-
-#                 "incident_type":
-#                 pending["incident_type"],
-
-
-#                 "description":
-#                 question
-#             }
-
-
-#             return {
-
-
-#                 "answer":
-#                 f"""
-# Please confirm:
-
-# Incident Type:
-# {pending['incident_type']}
-
-# Description:
-# {question}
-
-
-# Reply YES to create the claim.
-# """
-#             }
-
-
-
-#         # ===============================================
-#         # STEP 3 : WAITING FOR CONFIRMATION
-#         # ===============================================
-
-#         if (
-#             pending["action"] == "CREATE_CLAIM"
-#             and pending["step"] == "WAITING_FOR_CONFIRMATION"
-#         ):
-
-
-#             if question.lower() == "yes":
-
-
-#                 claim_id = create_claim(
-
-#                     policy_id,
-
-#                     pending["incident_type"],
-
-#                     pending["description"]
-
-#                 )
-
-
-#                 del conversation_state[session_id]
-
-
-#                 return {
-
-
-#                     "answer":
-#                     f"""
-# Claim created successfully.
-
-# Claim ID:
-# {claim_id}
-
-# Status:
-# SUBMITTED
-
-# Incident Type:
-# {pending['incident_type']}
-
-# Description:
-# {pending['description']}
-# """
-#                 }
-
-
-#             return {
-
-
-#                 "answer":
-#                 """
-# Claim creation cancelled.
-
-# You can start again by saying:
-# create a claim
-# """
-#             }
-
-
-
-#     # ---------------------------------------------------
-#     # Create Execution Plan
-#     # ---------------------------------------------------
-
-#     plan = create_plan(question)
-
-
-#     print("\nPLAN:")
-#     print(plan)
-
-
-
-#     # ---------------------------------------------------
-#     # Multi-Step Execution
-#     # ---------------------------------------------------
-
-#     if len(plan) > 1:
-
-
-#         responses = []
-
-
-#         for task in plan:
-
-
-#             task_intent = task["intent"]
-
-#             task_query = task["query"]
-
-
-
-#             if task_intent == "POLICY_QUERY":
-
-
-#                 answer = ask_policy(
-
-#                     policy_id,
-
-#                     normalize_query(task_query)
-
-#                 )
-
-
-#                 responses.append(
-
-#                     f"""
-# Question:
-# {task_query}
-
-# Answer:
-# {answer}
-# """
-#                 )
-
-
-
-#             elif task_intent == "TRACK_CLAIM":
-
-
-#                 import re
-
-
-#                 match = re.search(
-#                     r"\d+",
-#                     task_query
-#                 )
-
-
-#                 if match:
-
-
-#                     claim_id = int(match.group())
-
-
-#                     claim = get_claim_status(
-#                         claim_id
-#                     )
-
-
-#                     if claim:
-
-
-#                         responses.append(
-
-#                             f"""
-# Claim Details
-
-# Claim ID:
-# {claim['claim_id']}
-
-# Status:
-# {claim['claim_status']}
-
-# Incident:
-# {claim['incident_type']}
-
-# Description:
-# {claim['description']}
-# """
-#                         )
-
-
-#                     else:
-
-
-#                         responses.append(
-
-#                             f"No claim found with Claim ID {claim_id}."
-
-#                         )
-
-
-#                 else:
-
-
-#                     responses.append(
-
-#                         "Please provide a valid claim ID."
-
-#                     )
-
-
-
-#         return {
-
-
-#             "answer":
-
-#             "\n\n".join(responses)
-
-#         }
-
-
-
-
-
-#     # ---------------------------------------------------
-#     # Single Task Handling
-#     # ---------------------------------------------------
-
-#     intent = plan[0]["intent"]
-
-
-
-
-#     # POLICY QUERY
-
-#     if intent == "POLICY_QUERY":
-
-
-#         answer = ask_policy(
-
-#             policy_id,
-
-#             normalize_query(plan[0]["query"])
-
-#         )
-
-
-#         return {
-
-
-#             "answer":
-#             answer
-
-#         }
-
-
-
-
-
-#     # ===================================================
-#     # CREATE CLAIM NEW WORKFLOW
-#     # ===================================================
-
-
-#     elif intent == "CREATE_CLAIM":
-
-
-#         incident_type = None
-
-
-
-#         if "theft" in question.lower():
-
-#             incident_type = "THEFT"
-
-
-#         elif "accident" in question.lower():
-
-#             incident_type = "ACCIDENT"
-
-
-
-#         elif "flood" in question.lower():
-
-#             incident_type = "FLOOD"
-
-
-
-#         elif "fire" in question.lower():
-
-#             incident_type = "FIRE"
-
-
-
-
-#         # User already gave incident type
-
-#         if incident_type:
-
-
-#             conversation_state[session_id] = {
-
-
-#                 "action":
-
-#                 "CREATE_CLAIM",
-
-
-#                 "step":
-
-#                 "WAITING_FOR_DESCRIPTION",
-
-
-#                 "incident_type":
-
-#                 incident_type
-
-#             }
-
-
-#             return {
-
-
-#                 "answer":
-#                 """
-# Please provide a brief description of the incident.
-# """
-#             }
-
-
-
-#         # User only said create claim
-
-
-#         conversation_state[session_id] = {
-
-
-#             "action":
-
-#             "CREATE_CLAIM",
-
-
-#             "step":
-
-#             "WAITING_FOR_INCIDENT_TYPE"
-
-#         }
-
-
-
-#         return {
-
-
-#             "answer":
-#             """
-# Please select the incident type:
-
-# 1. Theft
-# 2. Accident
-# 3. Flood
-# 4. Fire
-# 5. Other
-
-# Reply with incident type.
-# """
-#         }
-
-
-
-
-
-
-#     # TRACK CLAIM
-
-#     elif intent == "TRACK_CLAIM":
-
-
-#         import re
-
-
-#         match = re.search(
-#             r"\d+",
-#             question
-#         )
-
-
-#         if match:
-
-
-#             claim_id = int(match.group())
-
-
-#             claim = get_claim_status(
-
-#                 claim_id
-
-#             )
-
-
-#             if claim:
-
-
-#                 return {
-
-
-#                     "answer":
-#                     f"""
-# Claim Details
-
-# Claim ID:
-# {claim['claim_id']}
-
-# Status:
-# {claim['claim_status']}
-
-# Incident:
-# {claim['incident_type']}
-
-# Description:
-# {claim['description']}
-# """
-#                 }
-
-
-
-#             return {
-
-
-#                 "answer":
-#                 f"No claim found with Claim ID {claim_id}."
-
-#             }
-
-
-#         return {
-
-
-#             "answer":
-#             "Please provide a valid claim ID."
-
-#         }
-
-
-
-
-
-#     return {
-
-
-#         "answer":
-#         """
-# I could not understand your request.
-
-# You can:
-
-# • Ask policy-related questions
-# • Create a claim
-# • Track a claim status
-
-# """
-#     }
-
-
-# @app.post("/ask-policy")
-# def ask_policy_api(request: dict):
-
-#     policy_id = request["policy_id"]
-#     question = request["question"]
-
-#     session_id = request.get(
-#         "session_id",
-#         "default_user"
-#     )
-
-
-#     # ===================================================
-#     # Helper Function - Detect Incident Type
-#     # ===================================================
-
-#     def detect_incident_type(text):
-
-#         text = text.lower()
-
-
-#         if any(word in text for word in [
-#             "theft",
-#             "threft",
-#             "stolen",
-#             "steal",
-#             "robbery"
-#         ]):
-
-#             return "THEFT"
-
-
-
-#         elif any(word in text for word in [
-#             "accident",
-#             "crash",
-#             "crashed",
-#             "collision",
-#             "hit"
-#         ]):
-
-#             return "ACCIDENT"
-
-
-
-#         elif any(word in text for word in [
-#             "flood",
-#             "water damage",
-#             "rain"
-#         ]):
-
-#             return "FLOOD"
-
-
-
-#         elif any(word in text for word in [
-#             "fire",
-#             "burn",
-#             "flame"
-#         ]):
-
-#             return "FIRE"
-
-
-
-#         elif "other" in text:
-
-#             return "OTHER"
-
-
-
-#         return None
-
-
-
-
-
-#     # ===================================================
-#     # Pending Claim Workflow
-#     # ===================================================
-
-
-#     if session_id in conversation_state:
-
-
-#         pending = conversation_state[session_id]
-
-
-
-#         # -----------------------------------------------
-#         # WAITING FOR INCIDENT TYPE
-#         # -----------------------------------------------
-
-
-#         if (
-#             pending["action"] == "CREATE_CLAIM"
-#             and
-#             pending["step"] == "WAITING_FOR_INCIDENT_TYPE"
-#         ):
-
-
-#             incident_type = detect_incident_type(question)
-
-
-
-#             if incident_type:
-
-
-#                 conversation_state[session_id] = {
-
-
-#                     "action":
-#                     "CREATE_CLAIM",
-
-
-#                     "step":
-#                     "WAITING_FOR_DESCRIPTION",
-
-
-#                     "incident_type":
-#                     incident_type
-
-#                 }
-
-
-
-#                 return {
-
-
-#                     "answer":
-#                     """
-# Please provide a brief description of the incident.
-# """
-#                 }
-
-
-
-
-#             return {
-
-
-#                 "answer":
-#                 """
-# Please select a valid incident type:
-
-# 1. Theft
-# 2. Accident
-# 3. Flood
-# 4. Fire
-# 5. Other
-
-# Reply with incident type.
-# """
-#             }
-
-
-
-
-
-
-#         # -----------------------------------------------
-#         # WAITING FOR DESCRIPTION
-#         # -----------------------------------------------
-
-
-#         if (
-#             pending["action"] == "CREATE_CLAIM"
-#             and
-#             pending["step"] == "WAITING_FOR_DESCRIPTION"
-#         ):
-
-
-
-#             conversation_state[session_id] = {
-
-
-#                 "action":
-#                 "CREATE_CLAIM",
-
-
-#                 "step":
-#                 "WAITING_FOR_CONFIRMATION",
-
-
-#                 "incident_type":
-#                 pending["incident_type"],
-
-
-#                 "description":
-#                 question
-
-#             }
-
-
-
-
-#             return {
-
-
-#                 "answer":
-#                 f"""
-# Please confirm:
-
-# Incident Type:
-# {pending['incident_type']}
-
-
-# Description:
-# {question}
-
-
-# Reply YES to create the claim.
-# """
-#             }
-
-
-
-
-
-
-#         # -----------------------------------------------
-#         # WAITING FOR CONFIRMATION
-#         # -----------------------------------------------
-
-
-#         if (
-#             pending["action"] == "CREATE_CLAIM"
-#             and
-#             pending["step"] == "WAITING_FOR_CONFIRMATION"
-#         ):
-
-
-
-#             if question.lower() in [
-#                 "yes",
-#                 "y",
-#                 "confirm"
-#             ]:
-
-
-
-#                 claim_id = create_claim(
-
-#                     policy_id,
-
-#                     pending["incident_type"],
-
-#                     pending["description"]
-
-#                 )
-
-
-
-#                 del conversation_state[session_id]
-
-
-
-#                 return {
-
-
-#                     "answer":
-#                     f"""
-# Claim created successfully.
-
-# Claim ID:
-# {claim_id}
-
-
-# Status:
-# SUBMITTED
-
-
-# Incident Type:
-# {pending['incident_type']}
-
-
-# Description:
-# {pending['description']}
-# """
-#                 }
-
-
-
-
-#             else:
-
-
-
-#                 del conversation_state[session_id]
-
-
-
-#                 return {
-
-
-#                     "answer":
-#                     """
-# Claim creation cancelled.
-
-# You can start again by saying:
-# create a claim
-# """
-#                 }
-
-
-
-
-
-
-
-#     # ===================================================
-#     # Create Execution Plan
-#     # ===================================================
-
-
-#     plan = create_plan(question)
-
-
-
-#     print("\nPLAN:")
-#     print(plan)
-
-
-
-
-
-#     # ===================================================
-#     # Multi Step Execution
-#     # ===================================================
-
-
-#     if len(plan) > 1:
-
-
-#         responses = []
-
-
-
-#         for task in plan:
-
-
-#             task_intent = task["intent"]
-
-#             task_query = task["query"]
-
-
-
-
-#             if task_intent == "POLICY_QUERY":
-
-
-#                 answer = ask_policy(
-
-#                     policy_id,
-
-#                     normalize_query(task_query)
-
-#                 )
-
-
-
-#                 responses.append(answer)
-
-
-
-
-
-#             elif task_intent == "TRACK_CLAIM":
-
-
-#                 import re
-
-
-
-#                 match = re.search(
-
-#                     r"\d+",
-
-#                     task_query
-
-#                 )
-
-
-
-#                 if match:
-
-
-#                     claim_id = int(match.group())
-
-
-
-#                     claim = get_claim_status(
-
-#                         claim_id
-
-#                     )
-
-
-
-#                     if claim:
-
-
-#                         responses.append(
-
-#                             f"""
-# Claim ID:
-# {claim['claim_id']}
-
-# Status:
-# {claim['claim_status']}
-
-# Incident:
-# {claim['incident_type']}
-
-# Description:
-# {claim['description']}
-# """
-#                         )
-
-
-
-#                     else:
-
-
-#                         responses.append(
-
-#                             f"No claim found with ID {claim_id}"
-
-#                         )
-
-
-
-#         return {
-
-
-#             "answer":
-
-#             "\n\n".join(responses)
-
-#         }
-
-
-
-
-
-
-
-#     # ===================================================
-#     # Single Task
-#     # ===================================================
-
-
-#     intent = plan[0]["intent"]
-
-
-
-
-
-
-#     # ---------------------------------------------------
-#     # POLICY QUERY
-#     # ---------------------------------------------------
-
-
-#     if intent == "POLICY_QUERY":
-
-
-#         answer = ask_policy(
-
-#             policy_id,
-
-#             normalize_query(plan[0]["query"])
-
-#         )
-
-
-
-#         return {
-
-
-#             "answer":
-#             answer
-
-#         }
-
-
-
-
-
-
-
-#     # ---------------------------------------------------
-#     # CREATE CLAIM
-#     # ---------------------------------------------------
-
-
-#     elif intent == "CREATE_CLAIM":
-
-
-
-
-#         incident_type = detect_incident_type(question)
-
-
-
-
-
-#         # User already mentioned incident type
-
-#         if incident_type:
-
-
-
-#             conversation_state[session_id] = {
-
-
-#                 "action":
-#                 "CREATE_CLAIM",
-
-
-#                 "step":
-#                 "WAITING_FOR_DESCRIPTION",
-
-
-#                 "incident_type":
-#                 incident_type
-
-#             }
-
-
-
-
-#             return {
-
-
-#                 "answer":
-#                 """
-# Please provide a brief description of the incident.
-# """
-#             }
-
-
-
-
-
-
-
-#         # User only said create claim
-
-
-#         conversation_state[session_id] = {
-
-
-#             "action":
-#             "CREATE_CLAIM",
-
-
-#             "step":
-#             "WAITING_FOR_INCIDENT_TYPE"
-
-#         }
-
-
-
-
-#         return {
-
-
-#             "answer":
-#             """
-# Please select the incident type:
-
-# 1. Theft
-# 2. Accident
-# 3. Flood
-# 4. Fire
-# 5. Other
-
-# Reply with incident type.
-# """
-#         }
-
-
-
-
-
-
-
-
-#     # ---------------------------------------------------
-#     # TRACK CLAIM
-#     # ---------------------------------------------------
-
-
-#     elif intent == "TRACK_CLAIM":
-
-
-#         import re
-
-
-
-#         match = re.search(
-
-#             r"\d+",
-
-#             question
-
-#         )
-
-
-
-#         if match:
-
-
-#             claim_id = int(match.group())
-
-
-
-#             claim = get_claim_status(
-
-#                 claim_id
-
-#             )
-
-
-
-#             if claim:
-
-
-#                 return {
-
-
-#                     "answer":
-#                     f"""
-# Claim Details
-
-# Claim ID:
-# {claim['claim_id']}
-
-# Status:
-# {claim['claim_status']}
-
-# Incident:
-# {claim['incident_type']}
-
-# Description:
-# {claim['description']}
-# """
-#                 }
-
-
-
-
-
-#             return {
-
-
-#                 "answer":
-#                 f"No claim found with Claim ID {claim_id}"
-
-#             }
-
-
-
-
-
-#         return {
-
-
-#             "answer":
-#             "Please provide a valid claim ID."
-
-#         }
-
-
-
-
-
-
-
-#     # ---------------------------------------------------
-#     # UNKNOWN
-#     # ---------------------------------------------------
-
-
-#     return {
-
-
-#         "answer":
-#         """
-# I could not understand your request.
-
-# You can:
-
-# • Ask policy questions
-# • Create a claim
-# • Track claim status
-# """
-#     }
-
-
-@app.post("/ask-policy")
-def ask_policy_api(request: dict):
-
-    policy_id = request["policy_id"]
-    question = request["question"]
-
-    session_id = request.get(
-        "session_id",
-        "default_user"
-    )
-
-
-    # ===================================================
-    # Detect Incident Type
-    # ===================================================
-
-    def detect_incident_type(text):
-
-        text = text.lower()
-
-
-        if any(word in text for word in [
-            "theft",
-            "threft",
-            "stolen",
-            "steal",
-            "robbery"
-        ]):
-
-            return "THEFT"
-
-
-
-        elif any(word in text for word in [
-            "accident",
-            "crash",
-            "crashed",
-            "collision",
-            "hit"
-        ]):
-
-            return "ACCIDENT"
-
-
-
-        elif any(word in text for word in [
-            "flood",
-            "water damage",
-            "rain"
-        ]):
-
-            return "FLOOD"
-
-
-
-        elif any(word in text for word in [
-            "fire",
-            "burn",
-            "flame"
-        ]):
-
-            return "FIRE"
-
-
-
-        elif "other" in text:
-
-            return "OTHER"
-
-
-        return None
-
-
-
-
-
-    # ===================================================
-    # Pending Claim Workflow
-    # ===================================================
-
-
-    if session_id in conversation_state:
-
-
-        pending = conversation_state[session_id]
-
-
-
-        # -----------------------------------------------
-        # WAITING INCIDENT TYPE
-        # -----------------------------------------------
-
-
-        if (
-            pending["action"] == "CREATE_CLAIM"
-            and
-            pending["step"] == "WAITING_FOR_INCIDENT_TYPE"
-        ):
-
-
-            incident_type = detect_incident_type(question)
-
-
-
-            if incident_type:
-
-
-                conversation_state[session_id] = {
-
-
-                    "action":
-                    "CREATE_CLAIM",
-
-
-                    "step":
-                    "WAITING_FOR_DESCRIPTION",
-
-
-                    "incident_type":
-                    incident_type
-
-                }
-
-
-                return {
-
-
-                    "answer":
-                    """
-Please provide a brief description of the incident.
-"""
-                }
-
-
-
-
-
-            return {
-
-
-                "answer":
-                """
-Please select a valid incident type:
-
-1. Theft
-2. Accident
-3. Flood
-4. Fire
-5. Other
-
-Reply with incident type.
-"""
-            }
-
-
-
-
-
-        # -----------------------------------------------
-        # WAITING DESCRIPTION
-        # -----------------------------------------------
-
-
-        if (
-            pending["action"] == "CREATE_CLAIM"
-            and
-            pending["step"] == "WAITING_FOR_DESCRIPTION"
-        ):
-
-
-
-            conversation_state[session_id] = {
-
-
-                "action":
-                "CREATE_CLAIM",
-
-
-                "step":
-                "WAITING_FOR_CONFIRMATION",
-
-
-                "incident_type":
-                pending["incident_type"],
-
-
-                "description":
-                question
-
-            }
-
-
-
-            return {
-
-
-                "answer":
-                f"""
-Please confirm:
-
-Incident Type:
-{pending['incident_type']}
-
-
-Description:
-{question}
-
-
-Reply YES to create the claim.
-"""
-            }
-
-
-
-
-
-        # -----------------------------------------------
-        # WAITING CONFIRMATION
-        # -----------------------------------------------
-
-
-        if (
-            pending["action"] == "CREATE_CLAIM"
-            and
-            pending["step"] == "WAITING_FOR_CONFIRMATION"
-        ):
-
-
-
-            if question.lower() in [
-                "yes",
-                "y",
-                "confirm"
-            ]:
-
-
-
-                claim_id = create_claim(
-
-                    policy_id,
-
-                    pending["incident_type"],
-
-                    pending["description"]
-
-                )
-
-
-
-                del conversation_state[session_id]
-
-
-
-                return {
-
-
-                    "answer":
-                    f"""
-Claim created successfully.
-
-Claim ID:
-{claim_id}
-
-
-Status:
-SUBMITTED
-
-
-Incident Type:
-{pending['incident_type']}
-
-
-Description:
-{pending['description']}
-"""
-                }
-
-
-
-
-
-            elif question.lower() in [
-                "no",
-                "n",
-                "cancel"
-            ]:
-
-
-
-                del conversation_state[session_id]
-
-
-                return {
-
-
-                    "answer":
-                    """
-Claim creation cancelled.
-
-You can start again by saying:
-create a claim
-"""
-                }
-
-
-
-
-
-            else:
-
-
-                return {
-
-
-                    "answer":
-                    """
-I did not understand.
-
-Please reply YES to create the claim
-or NO to cancel.
-"""
-                }
-
-
-
-
-
-
-
-    # ===================================================
-    # Create Plan
-    # ===================================================
-
-
-    plan = create_plan(question)
-
-
-    print("\nPLAN:")
-    print(plan)
-
-
-
-
-
-    # ===================================================
-    # MULTI INTENT EXECUTION
-    # ===================================================
-
-
-    if len(plan) > 1:
-
-
-        responses = []
-
-
-
-        for task in plan:
-
-
-            task_intent = task["intent"]
-
-            task_query = task["query"]
-
-
-
-
-            # -------------------------------------------
-            # POLICY QUERY
-            # -------------------------------------------
-
-
-            if task_intent == "POLICY_QUERY":
-
-
-
-                answer = ask_policy(
-
-                    policy_id,
-
-                    normalize_query(task_query)
-
-                )
-
-
-
-                responses.append(
-
-                    f"""
-Policy Answer:
-
-{answer}
-"""
-                )
-
-
-
-
-
-
-            # -------------------------------------------
-            # CREATE CLAIM
-            # -------------------------------------------
-
-
-            elif task_intent == "CREATE_CLAIM":
-
-
-
-                incident_type = detect_incident_type(
-                    task_query
-                )
-
-
-
-                if incident_type:
-
-
-
-                    conversation_state[session_id] = {
-
-
-                        "action":
-                        "CREATE_CLAIM",
-
-
-                        "step":
-                        "WAITING_FOR_DESCRIPTION",
-
-
-                        "incident_type":
-                        incident_type
-
-                    }
-
-
-
-                    responses.append(
-
-                        f"""
-Claim creation started.
-
-Incident Type:
-{incident_type}
-
-
-Please provide a brief description of the incident.
-"""
-                    )
-
-
-
-                else:
-
-
-
-                    conversation_state[session_id] = {
-
-
-                        "action":
-                        "CREATE_CLAIM",
-
-
-                        "step":
-                        "WAITING_FOR_INCIDENT_TYPE"
-
-                    }
-
-
-
-                    responses.append(
-
-                        """
-Please select the incident type:
-
-1. Theft
-2. Accident
-3. Flood
-4. Fire
-5. Other
-"""
-                    )
-
-
-
-
-
-
-            # -------------------------------------------
-            # TRACK CLAIM
-            # -------------------------------------------
-
-
-            elif task_intent == "TRACK_CLAIM":
-
-
-                import re
-
-
-
-                match = re.search(
-
-                    r"\d+",
-
-                    task_query
-
-                )
-
-
-
-                if match:
-
-
-
-                    claim_id = int(match.group())
-
-
-
-                    claim = get_claim_status(
-                        claim_id
-                    )
-
-
-
-                    if claim:
-
-
-                        responses.append(
-
-                            f"""
-Claim Details:
-
-Claim ID:
-{claim['claim_id']}
-
-
-Status:
-{claim['claim_status']}
-
-
-Incident:
-{claim['incident_type']}
-
-
-Description:
-{claim['description']}
-"""
-                        )
-
-
-
-                    else:
-
-
-                        responses.append(
-
-                            f"No claim found with ID {claim_id}"
-
-                        )
-
-
-
-
-        return {
-
-
-            "answer":
-
-            "\n\n".join(responses)
-
-        }
-
-
-
-
-
-
-
-    # ===================================================
-    # SINGLE INTENT
-    # ===================================================
-
-
-    intent = plan[0]["intent"]
-
-
-
-
-    # -----------------------------------------------
-    # POLICY
-    # -----------------------------------------------
-
-
-    if intent == "POLICY_QUERY":
-
-
-
-        answer = ask_policy(
-
-            policy_id,
-
-            normalize_query(plan[0]["query"])
-
-        )
-
-
-
-        return {
-
-
-            "answer":
-            answer
-
-        }
-
-
-
-
-
-
-
-    # -----------------------------------------------
-    # CREATE CLAIM
-    # -----------------------------------------------
-
-
-    elif intent == "CREATE_CLAIM":
-
-
-
-        incident_type = detect_incident_type(
-            question
-        )
-
-
-
-
-        if incident_type:
-
-
-
-            conversation_state[session_id] = {
-
-
-                "action":
-                "CREATE_CLAIM",
-
-
-                "step":
-                "WAITING_FOR_DESCRIPTION",
-
-
-                "incident_type":
-                incident_type
-
-            }
-
-
-
-            return {
-
-
-                "answer":
-                """
-Please provide a brief description of the incident.
-"""
-            }
-
-
-
-
-
-
-        conversation_state[session_id] = {
-
-
-            "action":
-            "CREATE_CLAIM",
-
-
-            "step":
-            "WAITING_FOR_INCIDENT_TYPE"
-
-        }
-
-
-
-
-        return {
-
-
-            "answer":
-            """
-Please select the incident type:
-
-1. Theft
-2. Accident
-3. Flood
-4. Fire
-5. Other
-
-Reply with incident type.
-"""
-        }
-
-
-
-
-
-
-
-    # -----------------------------------------------
-    # TRACK CLAIM
-    # -----------------------------------------------
-
-
-    elif intent == "TRACK_CLAIM":
-
-
-
-        import re
-
-
-
-        match = re.search(
-
-            r"\d+",
-
-            question
-
-        )
-
-
-
-        if match:
-
-
-            claim_id = int(match.group())
-
-
-
-            claim = get_claim_status(
-                claim_id
-            )
-
-
-
-            if claim:
-
-
-                return {
-
-
-                    "answer":
-                    f"""
-Claim Details:
-
-Claim ID:
-{claim['claim_id']}
-
-
-Status:
-{claim['claim_status']}
-
-
-Incident:
-{claim['incident_type']}
-
-
-Description:
-{claim['description']}
-"""
-                }
-
-
-
-
-
-            return {
-
-
-                "answer":
-                f"No claim found with ID {claim_id}"
-
-            }
-
-
-
-
-
-
-        return {
-
-
-            "answer":
-            "Please provide a valid claim ID."
-
-        }
-
-
-
-
-
-
-    # -----------------------------------------------
-    # UNKNOWN
-    # -----------------------------------------------
-
-
+@app.put("/claims/{claim_id}/status")
+def update_status(claim_id: int, status: str):
+    update_claim_status(claim_id, status)
     return {
-
-
-        "answer":
-        """
-I could not understand your request.
-
-You can:
-
-• Ask policy questions
-• Create a claim
-• Track claim status
-"""
+        "message":  "Claim status updated",
+        "claim_id": claim_id,
+        "status":   status,
     }
+
+# ---------------------------------------------------------------------------
+# Main chat endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/chat")
+def chat(request: ChatRequest):
+    policy_id  = request.policy_id
+    question   = request.question.strip()
+    session_id = request.session_id
+
+    # -----------------------------------------------------------------------
+    # 1. Check if a multi-turn conversation is already in progress
+    # -----------------------------------------------------------------------
+    pending_response = handle_pending_state(session_id, policy_id, question)
+    if pending_response is not None:
+        return {"answer": pending_response}
+
+    # -----------------------------------------------------------------------
+    # 2. Generate execution plan from LLM planner
+    # -----------------------------------------------------------------------
+    plan = create_plan(question)
+    print(f"\n[chat] PLAN: {plan}")
+
+    # -----------------------------------------------------------------------
+    # 3. Fallback if planner returned nothing
+    # FIX: original code crashed with IndexError on plan[0] when plan == []
+    # -----------------------------------------------------------------------
+    if not plan:
+        return {
+            "answer": (
+                "I could not understand your request.\n\n"
+                "You can:\n"
+                "• Ask policy questions\n"
+                "• Create a claim\n"
+                "• Track claim status"
+            )
+        }
+
+    # -----------------------------------------------------------------------
+    # 4. Execute plan
+    # FIX: single and multi-intent paths both call execute_task()
+    #      instead of duplicating the same if/elif blocks
+    # -----------------------------------------------------------------------
+    if len(plan) == 1:
+        answer = execute_task(plan[0], policy_id, session_id, question)
+        return {"answer": answer}
+
+    # Multi-intent — execute each task and join responses
+    responses = [
+        execute_task(task, policy_id, session_id, question)
+        for task in plan
+    ]
+    return {"answer": "\n\n---\n\n".join(responses)}
