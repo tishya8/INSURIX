@@ -42,6 +42,11 @@ policies = [
         "pdf": "../data/policies/bike_policy.pdf",
         "policy_id": 2,
         "policy_number": "BIKE-101"
+    },
+    {
+        "pdf": "../data/policies/vehicle2_policy.pdf",
+        "policy_id": 3,
+        "policy_number": "CAR-102"
     }
 ]
 

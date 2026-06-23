@@ -3,7 +3,7 @@ import re
 from langchain_ollama import OllamaLLM
 
 # ---------------------------------------------------------------------------
-# LLM
+# LLM setup
 # ---------------------------------------------------------------------------
 
 llm = OllamaLLM(
@@ -68,44 +68,47 @@ Output:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _strip_fences(raw: str) -> str:
+def _extract_json(raw: str) -> str:
     """
-    Remove markdown code fences if the LLM wraps output in them.
-    e.g.  ```json\n[...]\n```  becomes  [...]
-    FIX: json.loads crashed when LLM added code fences.
+    Strip markdown code fences if the LLM wraps its output in them.
+    e.g.  ```json\n[...]\n```  →  [...]
+    FIX: previously the parser crashed when LLM added code fences.
     """
-    return re.sub(r"```(?:json)?", "", raw).strip()
+    # remove ```json ... ``` or ``` ... ```
+    cleaned = re.sub(r"```(?:json)?", "", raw).strip()
+    return cleaned
 
 
 def _safe_parse(raw: str) -> list:
     """
-    Parse JSON safely, stripping fences first.
-    Returns [] instead of raising on failure.
+    Try to parse JSON from raw LLM output.
+    Returns empty list on failure instead of crashing.
+    FIX: previously called json.loads on raw directly —
+         now strips fences first so it handles more LLM outputs.
     """
     try:
-        return json.loads(_strip_fences(raw))
+        return json.loads(_extract_json(raw))
     except json.JSONDecodeError as e:
         print(f"[planner] JSON parse error: {e}")
-        print(f"[planner] Raw output: {raw!r}")
+        print(f"[planner] Raw output was: {raw!r}")
         return []
 
 # ---------------------------------------------------------------------------
-# Public
+# Public API
+# FIX: renamed generate_plan → create_plan to match how main.py imports it
 # ---------------------------------------------------------------------------
 
-def generate_plan(question: str) -> list:
+def create_plan(question: str) -> list:
     """
-    Returns a list of task dicts, each containing an 'intent' key.
-
-    Possible shapes:
-      {"intent": "POLICY_QUERY",  "query": "Is flood covered?"}
-      {"intent": "TRACK_CLAIM",   "claim_id": 5}
-      {"intent": "CREATE_CLAIM",  "incident_type": "THEFT"}
-
-    Returns [] when the LLM fails or output is unparseable.
+    Returns a list of task dicts, each with an 'intent' key.
+    Examples:
+      [{"intent": "POLICY_QUERY", "query": "Is flood covered?"}]
+      [{"intent": "TRACK_CLAIM",  "claim_id": 5}]
+      [{"intent": "CREATE_CLAIM", "incident_type": "THEFT"}]
+    Returns [] if LLM fails or output is unparseable.
     """
-    prompt = PLANNER_PROMPT.format(question=question)
-    raw    = llm.invoke(prompt)
+    prompt  = PLANNER_PROMPT.format(question=question)
+    raw     = llm.invoke(prompt)
 
     print("\n[planner] RAW OUTPUT:")
     print(raw)

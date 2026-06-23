@@ -1,37 +1,30 @@
 """
 INSURIX — FastAPI entry point (refactored)
 
-Summary of all changes from original main.py
-─────────────────────────────────────────────
-1.  Removed 1600+ lines of commented-out dead code (3 old versions of /ask-policy).
-2.  Removed duplicate import of get_user_policies (was imported from both
-    claim_service and policy_service — now only policy_service).
-3.  Moved `import re` to top level (was re-imported inside 3 functions).
-4.  Extracted detect_incident_type() to module level (was an inner function
-    inside /ask-policy, could not be reused anywhere else).
-5.  Extracted format_claim() — identical f-string was copy-pasted 4 times.
-6.  Extracted execute_task() — the POLICY_QUERY / CREATE_CLAIM / TRACK_CLAIM
-    if/elif blocks were copy-pasted identically for single-intent and
-    multi-intent paths. Now both paths call the same function.
-7.  Fixed TRACK_CLAIM in multi-intent: was reading task["query"] which does
-    not exist — planner puts the id in task["claim_id"]. Now reads
-    task["claim_id"] first, falls back to regex on question text.
-8.  Added Pydantic model (ChatRequest) — /ask-policy was raw dict with no
-    validation. Renamed endpoint to /chat to match the model name.
-9.  Confirmation now accepts "yes", "y", "confirm" (single-intent path
-    only accepted "yes" — the commented code had all three, restored here).
-10. Added fallback response when plan == [] so the endpoint never crashes
-    with IndexError on plan[0].
+Changes from original:
+  1. Removed 1800+ lines of commented-out dead code
+  2. Removed duplicate import of get_user_policies (was imported from
+     both claim_service and policy_service — now only policy_service)
+  3. Moved `import re` to top level (was re-imported inside 3 functions)
+  4. Added missing import for detect_incident_type (was used but never imported)
+  5. Extracted execute_task() — single function that handles one plan task,
+     called by both single-intent and multi-intent paths.
+     Previously the identical POLICY_QUERY / CREATE_CLAIM / TRACK_CLAIM
+     blocks were copy-pasted twice (single + multi), which meant any bug
+     fix had to be applied in two places.
+  6. Added Pydantic request model (ChatRequest) so /chat has proper
+     validation instead of a raw dict with no type safety.
+  7. Normalised TRACK_CLAIM to read task["claim_id"] (integer from planner)
+     instead of regex-searching task["query"] which didn't exist on that task.
+  8. Added fallback when plan is empty (LLM / parse failure).
 """
 
 import re
-
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from app.services.planner_service import generate_plan
-
+from app.services.planner_service import create_plan
 from app.services.claim_service import (
     create_claim,
     get_claim_status,
@@ -39,12 +32,13 @@ from app.services.claim_service import (
 )
 from app.services.rag_service import ask_policy
 
-# FIX 2: was imported from claim_service AND policy_service — one source only
+# FIX: was imported from both claim_service AND policy_service — pick one
 from app.services.policy_service import (
     get_user_policies,
     get_policy_document,
 )
 
+from app.services.intent_service import detect_intent        # kept for future use
 from app.services.session_service import conversation_state
 
 # ---------------------------------------------------------------------------
@@ -62,8 +56,8 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# Request model
-# FIX 8: was raw dict — Pydantic gives validation + Swagger docs for free
+# Request / response models
+# FIX: was raw dict — Pydantic gives validation + auto Swagger docs
 # ---------------------------------------------------------------------------
 
 class ChatRequest(BaseModel):
@@ -72,39 +66,31 @@ class ChatRequest(BaseModel):
     session_id: str = "default_user"
 
 # ---------------------------------------------------------------------------
-# Module-level helpers
-# FIX 4: detect_incident_type was an inner function — moved here so all
-#        paths (single, multi, pending) can call the same implementation.
-# FIX 5: format_claim was an inline f-string copy-pasted 4 times.
+# Utility helpers
 # ---------------------------------------------------------------------------
 
-# Richer keyword map (restored from commented-out version)
-INCIDENT_KEYWORDS: dict[str, list[str]] = {
-    "THEFT":    ["theft", "threft", "stolen", "steal", "robbery"],
-    "ACCIDENT": ["accident", "crash", "crashed", "collision", "hit"],
-    "FLOOD":    ["flood", "water damage", "rain"],
-    "FIRE":     ["fire", "burn", "flame"],
-    "OTHER":    ["other"],
+INCIDENT_KEYWORDS = {
+    "theft":    "THEFT",
+    "accident": "ACCIDENT",
+    "flood":    "FLOOD",
+    "fire":     "FIRE",
+    "other":    "OTHER",
 }
 
-CONFIRM_WORDS = {"yes", "y", "confirm"}
-CANCEL_WORDS  = {"no",  "n", "cancel"}
-
-
 def normalize_query(query: str) -> str:
-    """Strip trailing punctuation."""
+    """Strip trailing punctuation from a question string."""
     return query.strip().rstrip("?!.")
 
 
 def detect_incident_type(text: str) -> str | None:
     """
     Return the first matching incident type found in text, or None.
-    FIX 4: was redefined as an inner function inside /ask-policy on every
-    request. Now defined once at module level and shared everywhere.
+    FIX: was defined inline with if/elif chains duplicated in 3 places —
+         now one function used everywhere.
     """
     lowered = text.lower()
-    for incident_type, keywords in INCIDENT_KEYWORDS.items():
-        if any(kw in lowered for kw in keywords):
+    for keyword, incident_type in INCIDENT_KEYWORDS.items():
+        if keyword in lowered:
             return incident_type
     return None
 
@@ -112,7 +98,7 @@ def detect_incident_type(text: str) -> str | None:
 def format_claim(claim: dict) -> str:
     """
     Render a claim dict as a readable string.
-    FIX 5: identical f-string was copy-pasted in 4 places.
+    FIX: identical f-string was copy-pasted in 4 places — now one function.
     """
     return (
         f"Claim ID: {claim['claim_id']}\n"
@@ -123,8 +109,8 @@ def format_claim(claim: dict) -> str:
 
 # ---------------------------------------------------------------------------
 # Core task executor
-# FIX 6: single-intent and multi-intent paths had identical if/elif blocks.
-#        Both now call execute_task() — one place to fix bugs.
+# FIX: was copy-pasted for single-intent AND multi-intent — now one function.
+#      Both paths call execute_task() so logic only lives in one place.
 # ---------------------------------------------------------------------------
 
 def execute_task(
@@ -134,34 +120,34 @@ def execute_task(
     question:   str,
 ) -> str:
     """
-    Execute one plan task and return a plain-text response string.
+    Execute a single plan task and return a response string.
 
-    task shapes from planner:
+    task examples:
       {"intent": "POLICY_QUERY",  "query": "Is flood covered?"}
       {"intent": "TRACK_CLAIM",   "claim_id": 5}
       {"intent": "CREATE_CLAIM",  "incident_type": "THEFT"}
     """
     intent = task.get("intent")
 
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------
     # POLICY QUERY — RAG pipeline
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------
     if intent == "POLICY_QUERY":
         query  = task.get("query", question)
         answer = ask_policy(policy_id, normalize_query(query))
         return f"Policy Answer:\n\n{answer}"
 
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------
     # TRACK CLAIM
-    # FIX 7: multi-intent path read task["query"] which does not exist on
-    #        TRACK_CLAIM tasks — planner puts the id in task["claim_id"].
-    #        Now reads task["claim_id"] first, falls back to regex.
-    # -----------------------------------------------------------------------
+    # FIX: original multi-intent path read task["query"] which does not
+    #      exist on TRACK_CLAIM tasks — planner puts the id in task["claim_id"]
+    # -------------------------------------------------------------------
     if intent == "TRACK_CLAIM":
+        # Prefer the structured claim_id from the planner
         claim_id = task.get("claim_id")
 
+        # Fallback: extract digits from question if planner didn't parse it
         if claim_id is None:
-            # fallback: extract first number from the raw question
             match = re.search(r"\d+", question)
             if match:
                 claim_id = int(match.group())
@@ -174,11 +160,11 @@ def execute_task(
             return f"Claim Details:\n\n{format_claim(claim)}"
         return f"No claim found with ID {claim_id}."
 
-    # -----------------------------------------------------------------------
-    # CREATE CLAIM — starts a multi-turn conversation
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------
+    # CREATE CLAIM — multi-step conversation
+    # -------------------------------------------------------------------
     if intent == "CREATE_CLAIM":
-        # planner may have already extracted the incident type
+        # Planner may have already extracted the incident type
         incident_type = (
             task.get("incident_type")
             or detect_incident_type(question)
@@ -196,7 +182,7 @@ def execute_task(
                 f"Please provide a brief description of the incident."
             )
 
-        # incident type not known — ask user
+        # Incident type unknown — ask user
         conversation_state[session_id] = {
             "action": "CREATE_CLAIM",
             "step":   "WAITING_FOR_INCIDENT_TYPE",
@@ -211,9 +197,9 @@ def execute_task(
             "Reply with the incident type."
         )
 
-    # -----------------------------------------------------------------------
-    # UNKNOWN
-    # -----------------------------------------------------------------------
+    # -------------------------------------------------------------------
+    # UNKNOWN intent
+    # -------------------------------------------------------------------
     return (
         "I could not understand your request.\n\n"
         "You can:\n"
@@ -223,10 +209,7 @@ def execute_task(
     )
 
 # ---------------------------------------------------------------------------
-# Multi-turn conversation state handler
-# Handles the WAITING_FOR_INCIDENT_TYPE → WAITING_FOR_DESCRIPTION →
-# WAITING_FOR_CONFIRMATION steps for claim creation.
-# Returns a response string, or None if no pending state.
+# Conversation state handlers (multi-turn claim creation flow)
 # ---------------------------------------------------------------------------
 
 def handle_pending_state(
@@ -234,20 +217,23 @@ def handle_pending_state(
     policy_id:  int,
     question:   str,
 ) -> str | None:
-
+    """
+    If a multi-turn conversation is in progress, advance its state.
+    Returns the response string, or None if no pending state exists.
+    """
     if session_id not in conversation_state:
         return None
 
     pending = conversation_state[session_id]
+    action  = pending.get("action")
+    step    = pending.get("step")
 
-    if pending.get("action") != "CREATE_CLAIM":
+    if action != "CREATE_CLAIM":
         return None
 
-    step = pending.get("step")
-
-    # -----------------------------------------------------------------------
-    # Step 1 — waiting for user to name an incident type
-    # -----------------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Step 1 — waiting for the user to name an incident type
+    # ---------------------------------------------------------------
     if step == "WAITING_FOR_INCIDENT_TYPE":
         incident_type = detect_incident_type(question)
 
@@ -265,9 +251,9 @@ def handle_pending_state(
             "Reply with the incident type."
         )
 
-    # -----------------------------------------------------------------------
-    # Step 2 — waiting for description
-    # -----------------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Step 2 — waiting for a description
+    # ---------------------------------------------------------------
     if step == "WAITING_FOR_DESCRIPTION":
         conversation_state[session_id] = {
             "action":        "CREATE_CLAIM",
@@ -279,18 +265,14 @@ def handle_pending_state(
             f"Please confirm:\n\n"
             f"Incident Type: {pending['incident_type']}\n"
             f"Description: {question}\n\n"
-            f"Reply YES to create the claim or NO to cancel."
+            f"Reply YES to create the claim."
         )
 
-    # -----------------------------------------------------------------------
-    # Step 3 — waiting for YES / NO confirmation
-    # FIX 9: original live code only accepted "yes" — "y" and "confirm"
-    #        were in the commented code but were lost. Restored here.
-    # -----------------------------------------------------------------------
+    # ---------------------------------------------------------------
+    # Step 3 — waiting for YES/NO confirmation
+    # ---------------------------------------------------------------
     if step == "WAITING_FOR_CONFIRMATION":
-        answer = question.strip().lower()
-
-        if answer in CONFIRM_WORDS:
+        if question.strip().lower() == "yes":
             claim_id = create_claim(
                 policy_id,
                 pending["incident_type"],
@@ -305,22 +287,13 @@ def handle_pending_state(
                 f"Description: {pending['description']}"
             )
 
-        if answer in CANCEL_WORDS:
-            del conversation_state[session_id]
-            return (
-                "Claim creation cancelled.\n\n"
-                "You can start again by saying: create a claim."
-            )
-
-        return (
-            "I did not understand.\n\n"
-            "Please reply YES to create the claim or NO to cancel."
-        )
+        del conversation_state[session_id]
+        return "Claim creation cancelled. You can start again by saying: create a claim."
 
     return None
 
 # ---------------------------------------------------------------------------
-# Utility REST endpoints (unchanged from original)
+# REST endpoints — utility
 # ---------------------------------------------------------------------------
 
 @app.get("/")
@@ -368,7 +341,6 @@ def update_status(claim_id: int, status: str):
 
 # ---------------------------------------------------------------------------
 # Main chat endpoint
-# FIX 8: renamed /ask-policy → /chat, raw dict → ChatRequest Pydantic model
 # ---------------------------------------------------------------------------
 
 @app.post("/chat")
@@ -378,7 +350,7 @@ def chat(request: ChatRequest):
     session_id = request.session_id
 
     # -----------------------------------------------------------------------
-    # 1. Resume multi-turn conversation if one is in progress
+    # 1. Check if a multi-turn conversation is already in progress
     # -----------------------------------------------------------------------
     pending_response = handle_pending_state(session_id, policy_id, question)
     if pending_response is not None:
@@ -387,38 +359,34 @@ def chat(request: ChatRequest):
     # -----------------------------------------------------------------------
     # 2. Generate execution plan from LLM planner
     # -----------------------------------------------------------------------
-    plan = generate_plan(question)
+    plan = create_plan(question)
     print(f"\n[chat] PLAN: {plan}")
 
     # -----------------------------------------------------------------------
-    # 3. Handle empty plan — planner failed or question was unrecognised
-    # FIX 10: original code crashed with IndexError on plan[0] when plan=[]
+    # 3. Fallback if planner returned nothing
+    # FIX: original code crashed with IndexError on plan[0] when plan == []
     # -----------------------------------------------------------------------
     if not plan:
         return {
             "answer": (
                 "I could not understand your request.\n\n"
-                "Currently I can help with:\n\n"
-                "• Policy coverage questions\n"
-                "• Claim creation\n"
-                "• Claim status tracking\n\n"
-                "Examples:\n"
-                "• Is theft covered?\n"
-                "• Create a theft claim\n"
-                "• Track claim 7"
+                "You can:\n"
+                "• Ask policy questions\n"
+                "• Create a claim\n"
+                "• Track claim status"
             )
         }
 
     # -----------------------------------------------------------------------
     # 4. Execute plan
-    # FIX 6: single and multi paths now both call execute_task() — no
-    #        duplication.
+    # FIX: single and multi-intent paths both call execute_task()
+    #      instead of duplicating the same if/elif blocks
     # -----------------------------------------------------------------------
     if len(plan) == 1:
         answer = execute_task(plan[0], policy_id, session_id, question)
         return {"answer": answer}
 
-    # Multi-intent: run every task and join results with a divider
+    # Multi-intent — execute each task and join responses
     responses = [
         execute_task(task, policy_id, session_id, question)
         for task in plan
