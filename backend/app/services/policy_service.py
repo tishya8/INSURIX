@@ -53,3 +53,51 @@ def get_policy_document(policy_id):
     conn.close()
 
     return result
+
+
+def get_all_active_policy_documents():
+    """Used by loader at startup to index everything."""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    query = """
+    SELECT
+        p.policy_id,
+        p.policy_number,
+        pd.file_path
+    FROM policies p
+    JOIN policy_documents pd ON p.policy_id = pd.policy_id
+    WHERE p.status = 'ACTIVE'
+    """
+
+    cursor.execute(query)
+    result = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+
+    return result
+
+
+def get_single_policy_document(policy_id):
+    """Used when a new policy is uploaded — incremental index."""
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    query = """
+    SELECT
+        p.policy_id,
+        p.policy_number,
+        pd.file_path
+    FROM policies p
+    JOIN policy_documents pd ON p.policy_id = pd.policy_id
+    WHERE p.policy_id = %s
+    """
+
+    cursor.execute(query, (policy_id,))
+    result = cursor.fetchone()
+
+    cursor.close()
+    conn.close()
+
+    return result
