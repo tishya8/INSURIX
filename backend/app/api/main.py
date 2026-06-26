@@ -46,6 +46,7 @@ from app.services.policy_service import (
 )
 
 from app.services.session_service import conversation_state
+from app.services.auth_service import login_user
 
 # ---------------------------------------------------------------------------
 # App + CORS
@@ -60,6 +61,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Auth ─────────────────────────────────────────────────────────────────────
+ 
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+ 
+ 
+@app.post("/login")
+def login(req: LoginRequest):
+    result = login_user(req.email, req.password)
+    if result is None:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid email or password"
+        )
+    return result
 
 # ---------------------------------------------------------------------------
 # Request model
