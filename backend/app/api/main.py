@@ -62,6 +62,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Build ChromaDB once when the server starts ────────────────────────────────
+# Skips gracefully if ChromaDB already exists and is up to date.
+# To force a full rebuild, delete ./chroma_db/ and restart the server.
+ 
+@app.on_event("startup")
+def startup_build_chroma():
+    import os
+    chroma_dir = "./chroma_db"
+    if os.path.exists(chroma_dir) and os.listdir(chroma_dir):
+        print("[Startup] ChromaDB already exists — skipping rebuild.")
+        print("[Startup] Delete ./chroma_db/ and restart to force a rebuild.")
+    else:
+        print("[Startup] ChromaDB not found — building now…")
+        build_full_vectorstore()
+        print("[Startup] ChromaDB ready.")
+
 # ── Auth ─────────────────────────────────────────────────────────────────────
  
 class LoginRequest(BaseModel):

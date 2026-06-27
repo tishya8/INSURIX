@@ -57,7 +57,6 @@ def get_policy_document(policy_id):
 
 def get_all_active_policy_documents():
     """Used by loader at startup to index everything."""
-
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
@@ -82,7 +81,6 @@ def get_all_active_policy_documents():
 
 def get_single_policy_document(policy_id):
     """Used when a new policy is uploaded — incremental index."""
-
     conn = get_connection()
     cursor = conn.cursor(dictionary=True)
 
@@ -98,36 +96,6 @@ def get_single_policy_document(policy_id):
 
     cursor.execute(query, (policy_id,))
     result = cursor.fetchone()
-
-    cursor.close()
-    conn.close()
-
-    return result
-
-
-# For future use, to build ChromaDB only for a specific user's active policies after login
-def get_user_active_policy_documents(user_id):
-    """
-    Used after login to build ChromaDB only for this user's
-    active policies. Returns list of { policy_id, policy_number, file_path }.
-    """
-
-    conn = get_connection()
-    cursor = conn.cursor(dictionary=True)
-
-    query = """
-    SELECT
-        p.policy_id,
-        p.policy_number,
-        pd.file_path
-    FROM policies p
-    JOIN policy_documents pd ON p.policy_id = pd.policy_id
-    WHERE p.user_id = %s
-      AND p.status  = 'ACTIVE'
-    """
-
-    cursor.execute(query, (user_id,))
-    result = cursor.fetchall()
 
     cursor.close()
     conn.close()
