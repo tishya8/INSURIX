@@ -1,33 +1,41 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
-import { AuthProvider, useAuth }   from "./context/AuthContext";
-import { PolicyProvider }          from "./components/PolicyContext";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import { PolicyProvider }        from "./components/PolicyContext";
 
-import Sidebar     from "./components/Sidebar";
-import LoginPage   from "./pages/LoginPage";
-import ChatPage    from "./pages/ChatPage";
-import ClaimsPage  from "./pages/ClaimsPage";
-import PolicyPage  from "./pages/PolicyPage";
+import Sidebar    from "./components/Sidebar";
+import LoginPage  from "./pages/LoginPage";
+import ChatPage   from "./pages/ChatPage";
+import ClaimsPage from "./pages/ClaimsPage";
+import PolicyPage from "./pages/PolicyPage";
 
 import "./index.css";
 
+// Shows a full-screen loader while localStorage session is being restored
+function LoadingScreen() {
+  return (
+    <div style={{
+      minHeight: "100vh",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      background: "#001F5B",
+      color: "#A0B4D6",
+      fontSize: 14,
+    }}>
+      Loading…
+    </div>
+  );
+}
+
+// Wraps all routes that need a logged-in user.
+// If not logged in → redirect to /login.
+// If still checking localStorage → show loader (prevents flash).
 function ProtectedLayout() {
   const { user, loading } = useAuth();
 
-  if (loading) {
-    return (
-      <div style={{
-        minHeight: "100vh", display: "flex",
-        alignItems: "center", justifyContent: "center",
-        background: "#0F172A", color: "#475569",
-        fontSize: 14, fontFamily: "Inter, sans-serif",
-      }}>
-        Loading…
-      </div>
-    );
-  }
-
-  if (!user) return <Navigate to="/login" replace />;
+  if (loading) return <LoadingScreen />;
+  if (!user)   return <Navigate to="/login" replace />;
 
   return (
     <PolicyProvider>
@@ -45,12 +53,20 @@ function ProtectedLayout() {
   );
 }
 
+// If already logged in and visiting /login → redirect to dashboard
+function LoginRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return <LoadingScreen />;
+  if (user)    return <Navigate to="/" replace />;
+  return <LoginPage />;
+}
+
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
         <Routes>
-          <Route path="/login" element={<LoginPage />} />
+          <Route path="/login" element={<LoginRoute />} />
           <Route path="/*"     element={<ProtectedLayout />} />
         </Routes>
       </BrowserRouter>
@@ -59,3 +75,65 @@ function App() {
 }
 
 export default App;
+
+// import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+
+// import { AuthProvider, useAuth }   from "./context/AuthContext";
+// import { PolicyProvider }          from "./components/PolicyContext";
+
+// import Sidebar     from "./components/Sidebar";
+// import LoginPage   from "./pages/LoginPage";
+// import ChatPage    from "./pages/ChatPage";
+// import ClaimsPage  from "./pages/ClaimsPage";
+// import PolicyPage  from "./pages/PolicyPage";
+
+// import "./index.css";
+
+// function ProtectedLayout() {
+//   const { user, loading } = useAuth();
+
+//   if (loading) {
+//     return (
+//       <div style={{
+//         minHeight: "100vh", display: "flex",
+//         alignItems: "center", justifyContent: "center",
+//         background: "#0F172A", color: "#475569",
+//         fontSize: 14, fontFamily: "Inter, sans-serif",
+//       }}>
+//         Loading…
+//       </div>
+//     );
+//   }
+
+//   if (!user) return <Navigate to="/login" replace />;
+
+//   return (
+//     <PolicyProvider>
+//       <div className="app-container">
+//         <Sidebar />
+//         <div className="content">
+//           <Routes>
+//             <Route path="/"         element={<ChatPage />} />
+//             <Route path="/policies" element={<PolicyPage />} />
+//             <Route path="/claims"   element={<ClaimsPage />} />
+//           </Routes>
+//         </div>
+//       </div>
+//     </PolicyProvider>
+//   );
+// }
+
+// function App() {
+//   return (
+//     <AuthProvider>
+//       <BrowserRouter>
+//         <Routes>
+//           <Route path="/login" element={<LoginPage />} />
+//           <Route path="/*"     element={<ProtectedLayout />} />
+//         </Routes>
+//       </BrowserRouter>
+//     </AuthProvider>
+//   );
+// }
+
+// export default App;
