@@ -4,9 +4,9 @@ import { useAuth } from "../context/AuthContext";
 import { askPolicy } from "../api/insurix";
 
 const SUGGESTIONS = [
-  "What is the coverage limit?",
-  "How do I file a claim?",
   "What is excluded from this policy?",
+  "Create a claim",
+  "Track claim status <YOUR_CLAIM_ID>",
 ];
 
 export default function ChatPage() {

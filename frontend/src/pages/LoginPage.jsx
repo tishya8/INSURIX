@@ -59,7 +59,7 @@ export default function LoginPage() {
           </div>
 
           <h1 style={s.heroTitle}>
-            Protection you can<br />count on.
+            Intelligent Insurance <br />Information Exchange
           </h1>
 
           <p style={s.heroSub}>
@@ -76,7 +76,8 @@ export default function LoginPage() {
           <div style={s.divider} />
 
           <p style={s.footerNote}>
-            Powered by Insurance
+            A Platform where Insurance Operations are Powered by
+Artificial Intelligence
           </p>
         </div>
       </div>
