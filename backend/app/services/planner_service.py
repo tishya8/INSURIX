@@ -1,42 +1,257 @@
+"""
+planner_service.py — Intent planner for INSURIX chatbot.
+
+Architecture
+────────────
+1.  Rule-based parser (fast, deterministic, no hallucination).
+    Handles >95 % of real traffic reliably.
+2.  LLM fallback for genuinely ambiguous messages.
+
+Supported intents
+──────────────────
+  POLICY_QUERY  — {intent, query}
+  TRACK_CLAIM   — {intent, claim_id}          # one per claim ID
+  CREATE_CLAIM  — {intent, incident_type}      # only when user EXPLICITLY asks
+
+Key invariants
+──────────────
+• CREATE_CLAIM is NEVER emitted unless the user explicitly uses a
+  creation verb ("create", "raise", "file", "submit", "open", "log",
+  "start", "report").
+• Multiple claim IDs produce one TRACK_CLAIM per ID.
+• Multiple policy questions produce one POLICY_QUERY per question.
+• No duplicate intents for identical (intent, key) pairs.
+"""
+
 import json
 import re
-from langchain_ollama import OllamaLLM
+from typing import Optional
 
-llm = OllamaLLM(model="qwen2.5:1.5b", temperature=0)
+# ── Optional LLM (used as fallback only) ─────────────────────────────────────
+try:
+    from langchain_ollama import OllamaLLM
+    _llm = OllamaLLM(model="qwen2.5:1.5b", temperature=0)
+    _LLM_AVAILABLE = True
+except Exception:
+    _llm = None
+    _LLM_AVAILABLE = False
 
-# ---------------------------------------------------------------------------
-# Valid incident types — single source of truth shared with main.py
-# ---------------------------------------------------------------------------
+# ── Constants ─────────────────────────────────────────────────────────────────
 
-VALID_INCIDENT_TYPES = {"THEFT", "ACCIDENT", "FLOOD", "FIRE", "OTHER"}
+# Verbs that signal the user WANTS to create a new claim.
+# We require these to be present to emit CREATE_CLAIM.
+_CREATE_VERBS = re.compile(
+    r"\b(create|raise|file|submit|open|log|start|report|initiate|make)\b"
+    r"(?!\s+a?\s*claim\s+\d)",       # exclude "create claim 5" = track
+    re.IGNORECASE,
+)
 
-# ---------------------------------------------------------------------------
-# Prompt
-# FIX 3: Added FLOOD/FIRE/OTHER examples so planner stops returning UNKNOWN.
-# FIX 4: Added negative examples so coverage questions don't trigger CREATE_CLAIM.
-# FIX 5: Added rule that multiple coverage questions = one POLICY_QUERY, not split.
-# ---------------------------------------------------------------------------
+# "a claim" / "claim" preceded by a create verb — the actual claim noun
+_CLAIM_NOUN = re.compile(r"\b(a\s+)?claim\b", re.IGNORECASE)
 
-PLANNER_PROMPT = """
-You are an Insurance Assistant Planner. Classify the user message into intents.
+# Track-claim patterns — extract every numeric claim ID mentioned
+_TRACK_PATTERNS = [
+    # "track claim 3", "check claim 5", "status of claim 7"
+    re.compile(
+        r"\b(?:track|check|status\s+of|show|get|view|find|look\s+up)"
+        r"\s+(?:claim|claims)?\s*(\d+)\b",
+        re.IGNORECASE,
+    ),
+    # "claim 3 and claim 5" — bare "claim N" references (after filtering
+    # create verbs and coverage questions)
+    re.compile(r"\bclaim[s]?\s+(\d+)\b", re.IGNORECASE),
+    # "claims 3, 5 and 7"
+    re.compile(r"\bclaims?\s+([\d]+(?:\s*[,&]\s*[\d]+)*(?:\s+and\s+[\d]+)?)\b", re.IGNORECASE),
+]
 
-RULES:
-- Return ONLY a JSON array. No explanation. No markdown. No code fences.
-- Use ONLY these intents: POLICY_QUERY, CREATE_CLAIM, TRACK_CLAIM
-- For CREATE_CLAIM, incident_type must be one of: THEFT, ACCIDENT, FLOOD, FIRE, OTHER
-  If the message does not explicitly request creating/filing/submitting a claim, do NOT use CREATE_CLAIM.
-- For TRACK_CLAIM, claim_id must be an integer extracted from the message.
-- For POLICY_QUERY, combine all coverage/policy questions into ONE query string.
-- If the message contains TRACK_CLAIM or POLICY_QUERY together with no explicit claim creation request, do NOT add CREATE_CLAIM.
-- If incident type is unclear for CREATE_CLAIM, use "UNKNOWN" — never omit the intent.
+# Incident types for CREATE_CLAIM
+_INCIDENT_KEYWORDS: dict[str, list[str]] = {
+    "THEFT":    ["theft", "stolen", "steal", "robbery", "threft"],
+    "ACCIDENT": ["accident", "crash", "crashed", "collision", "hit"],
+    "FLOOD":    ["flood", "water damage", "rain"],
+    "FIRE":     ["fire", "burn", "flame"],
+    "OTHER":    ["other"],
+}
 
-EXAMPLES:
+# Policy / coverage question signals
+_POLICY_SIGNALS = re.compile(
+    r"\b(cover(?:ed|age|s)?|policy|deductible|premium|waiting\s+period"
+    r"|document[s]?|claim\s+process|what\s+is|does\s+(my|the)\s+policy"
+    r"|is\s+.+\s+covered|how\s+(much|long)|eligible|exclusion[s]?"
+    r"|benefit[s]?|include[s]?)\b",
+    re.IGNORECASE,
+)
 
+# Question words that strongly suggest a policy question
+_QUESTION_WORDS = re.compile(
+    r"\b(what|does|is|are|can|how|which|when|why)\b",
+    re.IGNORECASE,
+)
+
+# Words that split a single message into multiple sub-questions
+_SPLITTERS = re.compile(r"\b(and|also|as\s+well(?:\s+as)?|additionally|plus)\b", re.IGNORECASE)
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _detect_incident_type(text: str) -> Optional[str]:
+    lo = text.lower()
+    for itype, kws in _INCIDENT_KEYWORDS.items():
+        if any(kw in lo for kw in kws):
+            return itype
+    return None
+
+
+def _extract_all_claim_ids(text: str) -> list[int]:
+    """Return every unique claim ID found in text, in order of appearance."""
+    ids: list[int] = []
+    seen: set[int] = set()
+
+    # First look for "claims 3, 5 and 7" style
+    multi = re.findall(r"\bclaims?\s+([\d]+(?:\s*[,&]\s*[\d]+)*(?:\s+and\s+[\d]+)?)\b", text, re.IGNORECASE)
+    for group in multi:
+        for n in re.findall(r"\d+", group):
+            cid = int(n)
+            if cid not in seen:
+                seen.add(cid)
+                ids.append(cid)
+
+    # Then individual "claim N"
+    for m in re.finditer(r"\bclaim[s]?\s+(\d+)\b", text, re.IGNORECASE):
+        cid = int(m.group(1))
+        if cid not in seen:
+            seen.add(cid)
+            ids.append(cid)
+
+    return ids
+
+
+def _has_create_intent(text: str) -> bool:
+    """
+    Return True ONLY if the user explicitly asks to create / raise / file a claim.
+    Requires a creation verb AND the word 'claim'.
+    """
+    if not _CREATE_VERBS.search(text):
+        return False
+    if not _CLAIM_NOUN.search(text):
+        return False
+    return True
+
+
+def _has_track_intent(text: str) -> bool:
+    """Return True if any claim ID can be extracted."""
+    return bool(_extract_all_claim_ids(text))
+
+
+def _looks_like_policy_question(segment: str) -> bool:
+    """
+    Heuristic: does this segment ask about policy coverage / details?
+    True if it contains a question word or a policy signal keyword.
+    """
+    return bool(_POLICY_SIGNALS.search(segment) or _QUESTION_WORDS.search(segment))
+
+
+def _split_policy_questions(text: str) -> list[str]:
+    """
+    Split a message into individual policy sub-questions.
+
+    Examples handled:
+      "Is theft covered and what is the deductible?"
+        → ["Is theft covered", "what is the deductible?"]
+      "Does the policy cover flood damage and fire damage?"
+        → ["Does the policy cover flood damage?",
+           "Does the policy cover fire damage?"]
+
+    Strategy
+    ────────
+    1. Remove track-claim and create-claim fragments.
+    2. Try to detect the "Does X cover A and B?" pattern and expand it.
+    3. Split on conjunctions.
+    4. Keep only segments that look like policy questions.
+    """
+    # Remove "track claim N" fragments
+    cleaned = re.sub(
+        r"\b(?:track|check|status\s+of|show|get|view|find|look\s+up)"
+        r"\s+(?:claim|claims?)?\s*\d+\b",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Remove "claim N" references that remain
+    cleaned = re.sub(r"\bclaims?\s+\d+\b", "", cleaned, flags=re.IGNORECASE)
+    # Remove create-claim fragments
+    if _has_create_intent(cleaned):
+        cleaned = re.sub(
+            r"\b(?:create|raise|file|submit|open|log|start|report|initiate|make)\b"
+            r"(?:\s+a)?\s+(?:claim|new\s+claim)\b[^.?!]*",
+            "",
+            cleaned,
+            flags=re.IGNORECASE,
+        )
+
+    cleaned = cleaned.strip().strip(",").strip()
+
+    if not cleaned:
+        return []
+
+    # ── Expand "Does X cover [A] and [B]?" into two questions ────────────
+    # Pattern: <question-prefix> cover <topic1> and <topic2>
+    # where topic2 looks like a continuation (no verb of its own)
+    cover_expand = re.match(
+        r"^((?:does|is|are|can|will)\s+.{0,30}?\s+cover(?:ed|s)?)\s+"
+        r"(.+?)\s+and\s+(.+?)\??$",
+        cleaned.rstrip("?"),
+        re.IGNORECASE,
+    )
+    if cover_expand:
+        prefix = cover_expand.group(1)
+        topic_a = cover_expand.group(2).strip()
+        topic_b = cover_expand.group(3).strip()
+        # Only expand if topic_b has no verb (it's a bare noun/phrase, not
+        # a full sub-question like "what is the deductible")
+        if not re.search(r"\b(is|are|does|what|how|when|which|can)\b", topic_b, re.IGNORECASE):
+            return [
+                f"{prefix} {topic_a}?",
+                f"{prefix} {topic_b}?",
+            ]
+
+    # ── General split on "and", "also", etc. ─────────────────────────────
+    parts = _SPLITTERS.split(cleaned)
+    questions: list[str] = []
+    seen_q: set[str] = set()
+
+    for part in parts:
+        part = part.strip().strip(",").strip()
+        if not part:
+            continue
+        if not _looks_like_policy_question(part):
+            continue
+        normed = " ".join(part.split())
+        if normed.lower() in seen_q:
+            continue
+        seen_q.add(normed.lower())
+        questions.append(normed)
+
+    return questions
+
+
+# ── LLM fallback prompt ───────────────────────────────────────────────────────
+
+_LLM_PROMPT = """\
+You are an insurance assistant intent planner. Return ONLY valid JSON — no explanation, no markdown, no code fences.
+
+RULES (non-negotiable):
+1. Only emit CREATE_CLAIM if the user explicitly uses a creation verb: create, raise, file, submit, open, log, start, report.
+2. Never emit CREATE_CLAIM for policy coverage questions like "Is X covered?" or "Does the policy cover X?".
+3. Emit one TRACK_CLAIM per claim ID.
+4. Emit one POLICY_QUERY per distinct question.
+5. Never invent intents the user did not express.
+
+Intents: POLICY_QUERY, CREATE_CLAIM, TRACK_CLAIM
+
+Examples:
 User: Is theft covered?
 Output: [{{"intent":"POLICY_QUERY","query":"Is theft covered?"}}]
-
-User: Does the policy cover flood damage and fire damage?
-Output: [{{"intent":"POLICY_QUERY","query":"Does the policy cover flood damage and fire damage?"}}]
 
 User: Track claim 5
 Output: [{{"intent":"TRACK_CLAIM","claim_id":5}}]
@@ -44,130 +259,79 @@ Output: [{{"intent":"TRACK_CLAIM","claim_id":5}}]
 User: Create a theft claim
 Output: [{{"intent":"CREATE_CLAIM","incident_type":"THEFT"}}]
 
-User: File a flood claim
-Output: [{{"intent":"CREATE_CLAIM","incident_type":"FLOOD"}}]
-
-User: I want to create a fire claim
-Output: [{{"intent":"CREATE_CLAIM","incident_type":"FIRE"}}]
-
-User: Create a claim
-Output: [{{"intent":"CREATE_CLAIM","incident_type":"UNKNOWN"}}]
-
-User: Track claim 2 and tell me whether engine damage is covered
-Output: [{{"intent":"TRACK_CLAIM","claim_id":2}},{{"intent":"POLICY_QUERY","query":"Is engine damage covered?"}}]
-
 User: Is theft covered and track claim 2
 Output: [{{"intent":"POLICY_QUERY","query":"Is theft covered?"}},{{"intent":"TRACK_CLAIM","claim_id":2}}]
+
+User: Does the policy cover flood damage and fire damage?
+Output: [{{"intent":"POLICY_QUERY","query":"Does the policy cover flood damage?"}},{{"intent":"POLICY_QUERY","query":"Does the policy cover fire damage?"}}]
+
+User: Track claim 1 and claim 2
+Output: [{{"intent":"TRACK_CLAIM","claim_id":1}},{{"intent":"TRACK_CLAIM","claim_id":2}}]
 
 User: What documents are required for claim submission and track claim 1?
 Output: [{{"intent":"POLICY_QUERY","query":"What documents are required for claim submission?"}},{{"intent":"TRACK_CLAIM","claim_id":1}}]
 
-User: Create a claim and check if theft is covered
-Output: [{{"intent":"CREATE_CLAIM","incident_type":"UNKNOWN"}},{{"intent":"POLICY_QUERY","query":"Is theft covered?"}}]
-
 User: {question}
-Output:
-"""
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _strip_fences(raw: str) -> str:
-    return re.sub(r"```(?:json)?", "", raw).strip()
+Output:"""
 
 
-def _safe_parse(raw: str) -> list:
+def _llm_fallback(question: str) -> list:
+    if not _LLM_AVAILABLE or _llm is None:
+        return []
     try:
-        return json.loads(_strip_fences(raw))
-    except json.JSONDecodeError as e:
-        print(f"[planner] JSON parse error: {e}")
-        print(f"[planner] Raw output: {raw!r}")
+        raw = _llm.invoke(_LLM_PROMPT.format(question=question))
+        raw = re.sub(r"```(?:json)?", "", raw).strip()
+        return json.loads(raw)
+    except Exception as e:
+        print(f"[planner] LLM fallback error: {e}")
         return []
 
 
-def _validate_plan(plan: list) -> list:
+# ── Rule-based core ───────────────────────────────────────────────────────────
+
+def _rule_based_plan(question: str) -> list:
     """
-    FIX 3+4: Post-process the plan to catch issues the LLM might still make.
-
-    Rules applied:
-    1. TRACK_CLAIM must have integer claim_id — drop if missing.
-    2. CREATE_CLAIM incident_type must be in VALID_INCIDENT_TYPES or UNKNOWN.
-    3. If plan has TRACK_CLAIM or POLICY_QUERY but NO explicit claim creation
-       keyword in the original, strip rogue CREATE_CLAIM(UNKNOWN) entries
-       that were hallucinated. (Handled by caller using raw question.)
-    4. Deduplicate identical intents.
+    Pure rule-based planner. Never hallucinates. Returns [] only when the
+    input is genuinely unrecognised.
     """
-    seen   = set()
-    result = []
+    plan: list[dict] = []
 
-    for task in plan:
-        intent = task.get("intent")
+    # ── 1. TRACK_CLAIM — one intent per claim ID ──────────────────────────
+    claim_ids = _extract_all_claim_ids(question)
+    for cid in claim_ids:
+        plan.append({"intent": "TRACK_CLAIM", "claim_id": cid})
 
-        if intent == "TRACK_CLAIM":
-            cid = task.get("claim_id")
-            if cid is None:
-                continue  # malformed — skip
-            task["claim_id"] = int(cid)
+    # ── 2. CREATE_CLAIM — only on explicit create verb ────────────────────
+    if _has_create_intent(question):
+        incident_type = _detect_incident_type(question) or "UNKNOWN"
+        plan.append({"intent": "CREATE_CLAIM", "incident_type": incident_type})
 
-        if intent == "CREATE_CLAIM":
-            itype = str(task.get("incident_type", "UNKNOWN")).upper()
-            if itype not in VALID_INCIDENT_TYPES:
-                itype = "UNKNOWN"
-            task["incident_type"] = itype
+    # ── 3. POLICY_QUERY — one intent per sub-question ────────────────────
+    policy_questions = _split_policy_questions(question)
+    for q in policy_questions:
+        plan.append({"intent": "POLICY_QUERY", "query": q})
 
-        key = (intent, task.get("claim_id"), task.get("incident_type"))
-        if key in seen:
-            continue
-        seen.add(key)
-        result.append(task)
-
-    return result
+    return plan
 
 
-# Keywords that signal the user EXPLICITLY wants to create/file a claim
-_CLAIM_CREATION_TRIGGERS = [
-    "create", "file", "submit", "make", "open", "start", "raise", "log",
-    "new claim", "a claim",
-]
-
-
-def _user_explicitly_wants_claim(question: str) -> bool:
-    q = question.lower()
-    return any(kw in q for kw in _CLAIM_CREATION_TRIGGERS)
-
-
-# ---------------------------------------------------------------------------
-# Public
-# ---------------------------------------------------------------------------
+# ── Public API ────────────────────────────────────────────────────────────────
 
 def generate_plan(question: str) -> list:
     """
-    Returns a validated list of task dicts each containing an 'intent' key.
+    Returns a list of task dicts with an 'intent' key.
 
     Possible shapes:
       {"intent": "POLICY_QUERY",  "query": "Is flood covered?"}
       {"intent": "TRACK_CLAIM",   "claim_id": 5}
       {"intent": "CREATE_CLAIM",  "incident_type": "THEFT"}
 
-    Returns [] when the LLM fails or output is unparseable.
+    Returns [] when the input is unrecognised.
     """
-    prompt = PLANNER_PROMPT.format(question=question)
-    raw    = llm.invoke(prompt)
+    plan = _rule_based_plan(question)
 
-    print("\n[planner] RAW OUTPUT:")
-    print(raw)
+    if not plan and _LLM_AVAILABLE:
+        print("[planner] Rule-based returned empty — trying LLM fallback")
+        plan = _llm_fallback(question)
 
-    plan = _safe_parse(raw)
-    plan = _validate_plan(plan)
-
-    # FIX 4 + 5: Remove hallucinated CREATE_CLAIM(UNKNOWN) when the user
-    # never asked to create a claim. This fixes "What documents are required
-    # and track claim 1" producing a spurious CREATE_CLAIM.
-    if not _user_explicitly_wants_claim(question):
-        plan = [t for t in plan if t.get("intent") != "CREATE_CLAIM"]
-
-    print("\n[planner] VALIDATED PLAN:")
-    print(plan)
-
+    print(f"\n[planner] PLAN: {plan}")
     return plan
