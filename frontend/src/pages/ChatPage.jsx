@@ -2,6 +2,7 @@ import { useState, useContext, useRef, useEffect } from "react";
 import { PolicyContext } from "../components/PolicyContext";
 import { useAuth } from "../context/AuthContext";
 import { askPolicy } from "../api/insurix";
+import MessageBubble from "../components/MessageBubble";
 
 const SUGGESTIONS = [
   "What is the coverage limit?",
@@ -106,22 +107,24 @@ export default function ChatPage() {
 
         {/* Messages */}
         {messages.map((msg, i) => (
-          <div
-            key={i}
-            style={{
-              ...s.msgRow,
-              justifyContent: msg.sender === "user" ? "flex-end" : "flex-start",
-            }}
-          >
-            {msg.sender === "bot" && <div style={s.botAvatar}><ShieldSVG /></div>}
-            <div style={{
-              ...s.bubble,
-              ...(msg.sender === "user" ? s.bubbleUser : s.bubbleBot),
-              ...(msg.isError ? s.bubbleError : {}),
-            }}>
-              {msg.text}
+          msg.sender === "user" ? (
+            <div key={i} style={{ ...s.msgRow, justifyContent: "flex-end" }}>
+              <div style={{ ...s.bubble, ...s.bubbleUser }}>
+                {msg.text}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div key={i} style={{ ...s.msgRow, justifyContent: "flex-start" }}>
+              <div style={s.botAvatar}><ShieldSVG /></div>
+              <div style={{
+                ...s.bubble,
+                ...s.bubbleBot,
+                ...(msg.isError ? s.bubbleError : {}),
+              }}>
+                <MessageBubble sender={msg.sender} text={msg.text} />
+              </div>
+            </div>
+          )
         ))}
 
         {/* Typing indicator */}

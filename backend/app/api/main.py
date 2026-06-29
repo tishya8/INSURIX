@@ -24,6 +24,7 @@ from app.services.planner_service import generate_plan
 from app.services.claim_service import (
     create_claim,
     get_claim_status,
+    get_claim_status_for_policy,
     update_claim_status,
 )
 from app.services.rag_service import ask_policy
@@ -147,10 +148,13 @@ def execute_task(
                 claim_id = int(match.group())
         if claim_id is None:
             return "Please provide a valid claim ID."
-        claim = get_claim_status(int(claim_id))
+        claim = get_claim_status_for_policy(int(claim_id), policy_id)
         if claim:
             return f"Claim Details:\n\n{format_claim(claim)}"
-        return f"No claim found with ID {claim_id}."
+        return (
+            f"No claim with ID {claim_id} was found for the selected policy.\n"
+            f"Please select the correct policy or provide a valid claim ID."
+        )
 
     # ── CREATE CLAIM ─────────────────────────────────────────────────────
     if intent == "CREATE_CLAIM":

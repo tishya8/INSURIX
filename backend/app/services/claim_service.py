@@ -35,6 +35,23 @@ def create_claim(policy_id, incident_type, description):
 
     return claim_id
 
+def get_claim_status_for_policy(claim_id, policy_id):
+    """
+    Return the claim row only when the claim belongs to policy_id.
+    Returns None if the claim doesn't exist or belongs to a different policy.
+    """
+    conn = get_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT * FROM claims WHERE claim_id = %s AND policy_id = %s",
+        (claim_id, policy_id),
+    )
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result
+
+
 def get_claim_status(claim_id):
 
     conn = get_connection()
