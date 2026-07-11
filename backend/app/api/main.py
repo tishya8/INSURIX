@@ -36,6 +36,7 @@ from app.services.policy_service import (
 
 from app.services.session_service import conversation_state
 from app.services.auth_service import login_user
+from app.rag.policy_loader import build_full_vectorstore
 
 # ---------------------------------------------------------------------------
 # App + CORS
@@ -59,7 +60,8 @@ def startup_build_chroma():
         print("[Startup] ChromaDB already exists — skipping rebuild.")
     else:
         print("[Startup] ChromaDB not found — building now…")
-        build_full_vectorstore()
+        # Pending below testing
+        build_full_vectorstore() 
         print("[Startup] ChromaDB ready.")
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -211,7 +213,7 @@ def _looks_like_new_intent(question: str) -> bool:
     Heuristic: does this message look like a completely new request
     rather than a step in the claim-creation workflow?
     Returns True if the planner would produce at least one intent.
-    We check cheaply here without calling generate_plan to avoid recursion.
+    We check here without calling generate_plan to avoid recursion.
     """
     lo = question.lower().strip()
 
@@ -241,7 +243,7 @@ def handle_pending_state(
     """
     Handle a step in an in-progress claim creation workflow.
 
-    NEW (Issue 6 fix): if the user sends an unrelated request while claim
+    if the user sends an unrelated request while claim
     creation is pending, the workflow is automatically cancelled and the
     new request is processed normally (returns None so the main handler
     takes over).
@@ -336,7 +338,7 @@ def handle_pending_state(
     return None
 
 # ---------------------------------------------------------------------------
-# Utility REST endpoints
+# REST endpoints
 # ---------------------------------------------------------------------------
 
 @app.get("/")
