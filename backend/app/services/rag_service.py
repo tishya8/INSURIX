@@ -22,7 +22,7 @@ llm = OllamaLLM(
     temperature=0
 )
 
-def ask_policy(policy_id, query):
+def ask_policy(policy_id, query, return_context=False):
 
     print("\n===================================")
     print("POLICY SEARCH")
@@ -31,9 +31,9 @@ def ask_policy(policy_id, query):
     print(f"Policy ID : {policy_id}")
     print(f"Question  : {query}")
 
-    results = db.similarity_search(
+    results = db.similarity_search_with_score(
         query,
-        k=2,
+        k=4,
         filter={
             "policy_id": policy_id
         }
@@ -41,30 +41,38 @@ def ask_policy(policy_id, query):
 
     print(f"\nRetrieved Chunks: {len(results)}")
 
-    for i, doc in enumerate(results, start=1):
+    for i, (doc, score) in enumerate(results, start=1):
 
         print("\n-------------------------")
         print(f"CHUNK {i}")
         print("-------------------------")
 
-        print("METADATA:")
+        print(f"SIMILARITY SCORE: {score:.4f}")
+
+        print("\nMETADATA:")
         print(doc.metadata)
 
         print("\nCONTENT:")
         print(doc.page_content[:300])
 
-    context = "\n\n".join(
-        [doc.page_content for doc in results]
-    )
+    retrieved_context = [
+        doc.page_content for doc, score in results
+    ]
+
+    context = "\n\n".join(retrieved_context)
 
     prompt = f"""
 You are an insurance policy assistant.
 
-Answer the question ONLY using the provided context.
+Use ONLY the information contained in the retrieved policy context.
 
-If the answer is not present in the context, reply:
-
+Rules:
+- Do not use outside knowledge.
+- If multiple chunks contain the answer, combine them.
+- If the answer is not explicitly present, reply exactly:
 "I could not find this information in the policy."
+- Keep answers concise.
+- Quote policy values exactly (policy number, deductible, IDV, dates, registration number, etc.) without modifying them.
 
 Context:
 {context}
@@ -76,5 +84,11 @@ Answer:
 """
 
     response = llm.invoke(prompt)
+
+    if return_context:
+        return {
+            "answer": response,
+            "context": retrieved_context
+        }
 
     return response

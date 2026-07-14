@@ -1,0 +1,17 @@
+id,category,question,expected_answer,difficulty
+1,Policy Information,What is my policy number?,INSX-MOT-2026-00018452,Easy
+2,Policy Information,Who is the policyholder?,Tishya Banerjee,Easy
+3,Policy Information,What is the policy period?,01 Jan 2026 – 31 Dec 2026,Easy
+4,Vehicle Information,What is my vehicle registration number?,WB 06 AB 4582,Easy
+5,Vehicle Information,What is the engine number?,G4FLGM203491 (or your final value),Easy
+6,Vehicle Information,What is the chassis number?,MALPC81ALNM458271,Easy
+7,Coverage,Is theft covered?,"Yes, theft of the insured vehicle is covered up to the applicable IDV, subject to policy terms and conditions.",Easy
+8,Coverage,Is flood damage covered?,"Yes, subject to deductible and policy conditions.",Easy
+9,Coverage,Is fire covered?,Yes.,Easy
+10,Coverage,Does the policy provide third-party liability coverage?,Yes.,Easy
+11,Coverage,What is the personal accident cover amount?,"₹15,00,000",Easy
+12,Claims,What is the compulsory deductible?,"₹5,000 per Own Damage claim.",Easy
+13,Claims,What is the claim notification period?,Within 48 hours.,Medium
+14,Claims,How long does claim settlement normally take?,7 working days after complete documentation and approval.,Medium
+15,Customer Support,How do I raise a complaint?,"Toll-free number, support email, grievance email.",Medium
+16,Add-on Covers,What is Engine Protect Cover?,"Covers engine and gearbox damage due to hydrostatic lock/fluid ingress, subject to policy terms.",Medium

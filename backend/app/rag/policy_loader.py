@@ -11,8 +11,15 @@ from app.services.policy_service import (
 CHROMA_DIR = "./chroma_db"
 
 splitter = RecursiveCharacterTextSplitter(
-    chunk_size=250,
-    chunk_overlap=50
+    chunk_size=1000,
+    chunk_overlap=200,
+    separators=[
+        "\n\n",
+        "\n",
+        ". ",
+        " ",
+        ""
+    ]
 )
 
 

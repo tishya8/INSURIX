@@ -1,0 +1,5 @@
+Evaluator,Category,Difficulty,Question,Expected Answer,Generated Answer,Faithfulness,Reason
+Gemini Flash Latest,Policy Information,Easy,What is my policy number?,INSX-MOT-2026-00018452,INSX-MOT-2026-00018452,1,Completely faithful to retrieval context
+Gemini Flash Latest,Policy Information,Easy,Who is the policyholder?,Tishya Banerjee,Tishya Banerjee,1,Completely faithful to retrieval context
+Gemini Flash Latest,Policy Information,Easy,What is the policy period?,01 Jan 2026 – 31 Dec 2026,The policy period is one year.,1,Supported by context but incomplete answer
+Gemini Flash Latest,Vehicle Information,Easy,What is my vehicle registration number?,WB 06 AB 4582,WB 06 AB 4582,1,Completely faithful to retrieval context

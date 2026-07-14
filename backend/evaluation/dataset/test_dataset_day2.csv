@@ -1,0 +1,13 @@
+id,category,question,expected_answer,difficulty
+17,Policy Information,What is the Insured Declared Value (IDV)?,"₹16,80,000",Easy
+18,Vehicle Information,What is the manufacturing year of my vehicle?,2024,Easy
+19,Vehicle Information,What is the fuel type?,Petrol,Easy
+20,Vehicle Information,Which RTO is my vehicle registered under?,Kolkata (WB06),Easy
+21,Coverage,Does the policy cover earthquake damage?,"Yes, earthquake damage is covered under Own Damage coverage.",Medium
+22,Coverage,Does the policy cover riots and strikes?,"Yes, riots and strikes are covered under Own Damage coverage.",Medium
+23,Add-on,Does this policy include Zero Depreciation Cover?,"Yes, Zero Depreciation Cover is included.",Medium
+24,Add-on,Does the policy provide a Courtesy Car?,Yes. Courtesy Car Add-on is active subject to policy conditions.,Medium
+25,Exclusion,Are personal belongings inside the vehicle covered?,No. Personal belongings inside the vehicle are not covered unless separately insured.,Medium
+26,Exclusion,Is damage caused by drunk driving covered?,No. Damage while driving under the influence of alcohol is excluded.,Medium
+27,Claims,What documents are required for a theft claim?,"FIR, RC, claim form, original keys, policy document and Non-Traceable Report (where required).",Medium
+28,Claims,Can I get cashless settlement outside a network garage?,No. Cashless settlement requires repairs at an authorized network garage.,Medium

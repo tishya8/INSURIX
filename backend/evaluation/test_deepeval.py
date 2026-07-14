@@ -1,0 +1,3 @@
+from evaluation.deepeval_config import evaluation_model
+
+print(evaluation_model)

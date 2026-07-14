@@ -1,0 +1,13 @@
+ID,Category,Question,Expected Answer,Difficulty
+29,Coverage,Is engine damage after waterlogging always covered?,No. Engine damage due to hydrostatic lock is covered only if Engine Protect Add-on is active.,Hard
+30,Coverage,Under what conditions is flood damage covered?,"Flood damage is covered up to IDV after deductible, provided the claim is reported within 48 hours and policy conditions are met.",Hard
+31,Claims,What should I do immediately after my vehicle is stolen?,"Inform the insurer immediately, lodge an FIR, submit claim documents, original keys and Non-Traceable Report where required.",Hard
+32,Claims,What should I do after an accident to ensure claim approval?,"Notify the insurer within 48 hours, document the damage, cooperate with survey inspection and repair at a network garage for cashless settlement.",Hard
+33,Add-on,When can I use the Courtesy Car benefit?,"When the Courtesy Car Add-on is active and the insured vehicle is under repair for an admissible own damage claim or theft claim, subject to policy limits.",Hard
+34,Coverage,Is attempted theft covered?,Yes. Theft and attempted theft of the insured vehicle are covered subject to policy terms.,Hard
+35,Deductible,When is the compulsory deductible applied?,The compulsory deductible is applied to every Own Damage claim before claim settlement.,Hard
+36,Policy,What is the maximum personal accident compensation available?,"₹15,00,000 for the registered owner-driver.",Hard
+37,Add-on,How many Zero Depreciation claims are allowed during one policy term?,Maximum two claims during one policy term.,Hard
+38,Coverage,Does the policy cover landslide damage?,Yes. Landslide and rockslide are covered under Own Damage coverage.,Hard
+39,Coverage,Is hydrostatic lock covered if Engine Protect is not purchased?,No.,Hard
+40,Coverage,What is the maximum amount payable if my vehicle is stolen?,"Up to the Insured Declared Value (IDV), subject to deductible and policy conditions.",Hard
