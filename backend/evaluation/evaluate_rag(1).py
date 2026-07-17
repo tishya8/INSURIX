@@ -58,10 +58,7 @@ results = []
 # -------------------------------------------------------
 
 # for gemini run 5 cases
-# total_cases = min(5, len(test_cases))
-
-# Test cases 2 to 5 (inclusive)
-total_cases = test_cases.iloc[1:5]
+total_cases = min(5, len(test_cases))
 
 # for ollama run all
 # total_cases = len(test_cases)

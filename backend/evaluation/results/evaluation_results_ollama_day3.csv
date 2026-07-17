@@ -1,0 +1,33 @@
+Evaluator,Model,Category,Difficulty,Question,Expected Answer,Generated Answer,Faithfulness,Answer Relevancy,Contextual Relevancy
+ollama,qwen2.5:3b,Coverage,Hard,Is engine damage after waterlogging always covered?,No. Engine damage due to hydrostatic lock is covered only if Engine Protect Add-on is active.,"No, engine damage caused by restarting or cranking the vehicle after water ingress is not covered under this insurance policy. The policy explicitly excludes such damage due to water ingress.",0.0,0.5,0.3333333333333333
+ollama,qwen2.5:3b,Coverage,Hard,Under what conditions is flood damage covered?,"Flood damage is covered up to IDV after deductible, provided the claim is reported within 48 hours and policy conditions are met.","Flood damage caused by the following insured perils is covered up to the applicable Insured Declared Value (IDV) after applying the compulsory deductible: Flood, inundation, waterlogging, or overflowing rivers.",1.0,0.3333333333333333,0.25
+ollama,qwen2.5:3b,Claims,Hard,What should I do immediately after my vehicle is stolen?,"Inform the insurer immediately, lodge an FIR, submit claim documents, original keys and Non-Traceable Report where required.",Notify INSURIX within 48 hours of discovering the theft and lodge a First Information Report (FIR) with the local police.,1.0,0.5,0.0
+ollama,qwen2.5:3b,Claims,Hard,What should I do after an accident to ensure claim approval?,"Notify the insurer within 48 hours, document the damage, cooperate with survey inspection and repair at a network garage for cashless settlement.","After an accident, you should:
+
+1. Ensure the immediate safety of all occupants.
+2. Move the vehicle only if legally permitted or required for safety.
+3. Take detailed photographs of the vehicle damage and the accident scene.
+4. Inform local police immediately if injuries exist.
+5. Contact INSURIX customer support within 48 hours to file a digital claim intimation and generate a tracking token.
+6. Submit all original vehicle keys, the Registration Certificate (RC), policy document, claim form, and other required documents.
+7. Provide a Non-Traceable Report where required by law before settling a total theft claim.
+
+Additionally, you should submit personal belongings such as laptops, mobile phones, cash, jewellery, luggage, documents, and other personal effects kept inside the insured vehicle to ensure they are not covered under this policy.",0.8571428571428571,0.625,0.2727272727272727
+ollama,qwen2.5:3b,Add-on,Hard,When can I use the Courtesy Car benefit?,"When the Courtesy Car Add-on is active and the insured vehicle is under repair for an admissible own damage claim or theft claim, subject to policy limits.","The Courtesy Car benefit is available when all of the following conditions are satisfied:
+
+1. The Courtesy Car Add-on has been purchased and is active under this policy.
+2. Repairs are carried out at an authorized INSURIX Network Garage.
+3. Estimated repair duration exceeds 4 working days, or
+4. The insured vehicle has been stolen and the theft claim has been accepted for processing.
+
+The benefit limits include:
+- Maximum benefit: 7 consecutive days per claim.
+- Maximum cumulative benefit: 14 days during one policy year.
+- Maximum reimbursement (where a replacement vehicle is unavailable): ₹1,500 per day.",0.14285714285714285,0.0,0.0
+ollama,qwen2.5:3b,Coverage,Hard,Is attempted theft covered?,Yes. Theft and attempted theft of the insured vehicle are covered subject to policy terms.,"Yes, attempted theft is covered up to the applicable Insured Declared Value (IDV), subject to policy terms and conditions.",0.0,0.5,0.25
+ollama,qwen2.5:3b,Deductible,Hard,When is the compulsory deductible applied?,The compulsory deductible is applied to every Own Damage claim before claim settlement.,The compulsory deductible applies to every approved Own Damage claim.,1.0,0.0,0.0
+ollama,qwen2.5:3b,Policy,Hard,What is the maximum personal accident compensation available?,"₹15,00,000 for the registered owner-driver.","The maximum personal accident compensation available under this policy is Rs. 15,00,000 for death or specified permanent disabilities resulting from an accident involving the insured vehicle.",0.5,0.5,0.0
+ollama,qwen2.5:3b,Add-on,Hard,How many Zero Depreciation claims are allowed during one policy term?,Maximum two claims during one policy term.,2 claims per policy term.,0.5,0.0,0.0
+ollama,qwen2.5:3b,Coverage,Hard,Does the policy cover landslide damage?,Yes. Landslide and rockslide are covered under Own Damage coverage.,"No, the policy does not cover landslide damage.",0.0,0.5,0.0
+ollama,qwen2.5:3b,Coverage,Hard,Is hydrostatic lock covered if Engine Protect is not purchased?,No.,"No, hydrostatic lock or consequential engine damage caused by water ingress without an active Engine Protect Add-on is not covered under this policy unless the Engine Protect Add-on has been purchased and shown in the Policy Schedule.",0.0,0.3333333333333333,0.25
+ollama,qwen2.5:3b,Coverage,Hard,What is the maximum amount payable if my vehicle is stolen?,"Up to the Insured Declared Value (IDV), subject to deductible and policy conditions.",The maximum liability of the Company shall not exceed the applicable Insured Declared Value (IDV) after applying the compulsory deductible and any other applicable deductions.,0.6666666666666666,0.0,0.1111111111111111

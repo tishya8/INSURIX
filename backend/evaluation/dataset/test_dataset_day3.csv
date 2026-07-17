@@ -1,4 +1,4 @@
-ID,Category,Question,Expected Answer,Difficulty
+id,category,question,expected_answer,difficulty
 29,Coverage,Is engine damage after waterlogging always covered?,No. Engine damage due to hydrostatic lock is covered only if Engine Protect Add-on is active.,Hard
 30,Coverage,Under what conditions is flood damage covered?,"Flood damage is covered up to IDV after deductible, provided the claim is reported within 48 hours and policy conditions are met.",Hard
 31,Claims,What should I do immediately after my vehicle is stolen?,"Inform the insurer immediately, lodge an FIR, submit claim documents, original keys and Non-Traceable Report where required.",Hard
