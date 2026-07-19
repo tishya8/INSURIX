@@ -1,0 +1,22 @@
+Evaluator,Model,Category,Difficulty,Question,Expected Answer,Generated Answer,Faithfulness,Answer Relevancy,Contextual Relevancy,Retrieval Time (ms),Generation Time (ms),Total Time (ms),Response Length (words)
+ollama,qwen2.5:3b,Policy Information,Easy,What is my policy number?,INSX-MOT-2026-00018452,INSX-MOT-2026-00018452,1.0,1.0,0.0,342.99,3953.43,4297.05,1
+ollama,qwen2.5:3b,Policy Information,Easy,Who is the policyholder?,Tishya Banerjee,Tishya Banerjee,1.0,0.0,0.0,433.41,3720.18,4154.89,2
+ollama,qwen2.5:3b,Policy Information,Easy,What is the policy period?,01 Jan 2026 – 31 Dec 2026,The policy period is one year.,1.0,0.5,0.0,755.03,1746.48,2855.43,6
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is my vehicle registration number?,WB 06 AB 4582,WB 06  AB  4582,0.0,1.0,0.0,1268.54,2238.75,8561.43,4
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the engine number?,G4FLGM203491 (or your final value),G4FLGM203491,0.5,1.0,0.0,1451.35,2493.22,6576.2,1
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the chassis number?,MALPC81ALNM458271,MALPC81ALNM458271,1.0,1.0,0.0,627.57,2066.75,3714.19,1
+ollama,qwen2.5:3b,Coverage,Easy,Is theft covered?,"Yes, theft of the insured vehicle is covered up to the applicable IDV, subject to policy terms and conditions.","Yes, theft of the insured vehicle is covered up to the applicable IDV, subject to policy terms, deductibles, and submission of required claim documents.",1.0,0.0,0.0,2939.73,3710.77,12992.33,24
+ollama,qwen2.5:3b,Coverage,Easy,Is flood damage covered?,"Yes, subject to deductible and policy conditions.","Yes, flood damage is covered up to the applicable Insured Declared Value (IDV) after applying the compulsory deductible.",0.0,0.5,0.0,1425.34,2895.88,6408.31,18
+ollama,qwen2.5:3b,Coverage,Easy,Is fire covered?,Yes.,"Yes, fire is covered under Section I (Own Damage) as an accidental external peril.",1.0,0.5,0.0,886.9,2571.51,3986.44,14
+ollama,qwen2.5:3b,Coverage,Easy,Does the policy provide third-party liability coverage?,Yes.,"Yes, this policy provides third-party liability coverage. The policy covers statutory protection against the insured's legal liability for bodily injury or property damage caused to third parties arising from the use of the insured vehicle.",0.5,0.6666666666666666,0.0,858.59,3337.75,4727.12,35
+ollama,qwen2.5:3b,Coverage,Easy,What is the personal accident cover amount?,"₹15,00,000","Rs. 15,00,000",0.8,1.0,0.0,851.14,2363.42,4587.55,2
+ollama,qwen2.5:3b,Claims,Easy,What is the compulsory deductible?,"₹5,000 per Own Damage claim.","The compulsory deductible for this insurance policy is ₹5,000 per Own Damage claim.",1.0,0.5,0.0,840.85,2700.68,4036.26,13
+ollama,qwen2.5:3b,Claims,Medium,What is the claim notification period?,Within 48 hours.,The claim notification period is 7 days.,1.0,0.5,0.0,615.09,2060.29,2677.1,7
+ollama,qwen2.5:3b,Claims,Medium,How long does claim settlement normally take?,7 working days after complete documentation and approval.,The normal time frame for claim settlement is within 7 working days following formal surveyor and invoice approval.,1.0,0.5,0.0,604.21,2455.76,3304.12,18
+ollama,qwen2.5:3b,Customer Support,Medium,How do I raise a complaint?,"Toll-free number, support email, grievance email.","To raise a complaint, please use these standardized communication lines:
+
+● Toll-Free Helpline Desk: 1800-123-4567 (Central Customer Operations Center)
+● Official Core Email Portal: support@insurix.co.in
+● Corporate Web URL Domain: www.insurixinsurance.co.in
+● Regional Grievance Escalations: grievance@insurix.co.in",0.75,0.0,0.14285714285714285,1106.18,3361.42,6590.49,36
+ollama,qwen2.5:3b,Add-on Covers,Medium,What is Engine Protect Cover?,"Covers engine and gearbox damage due to hydrostatic lock/fluid ingress, subject to policy terms.","The Engine Protect Cover reimburses overhaul expenses for engine blocks and gearboxes damaged via hydrostatic lock or fluid leakage, with a limit of 1 claim per term up to Rs. 25,00,000.",1.0,0.0,0.0,654.35,3522.33,4252.84,31

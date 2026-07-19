@@ -1,6 +1,7 @@
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import OllamaLLM
+import time
 
 print("Loading Embedding Model...")
 
@@ -24,6 +25,8 @@ llm = OllamaLLM(
 
 def ask_policy(policy_id, query, return_context=False):
 
+    total_start = time.perf_counter()
+
     print("\n===================================")
     print("POLICY SEARCH")
     print("===================================")
@@ -31,13 +34,17 @@ def ask_policy(policy_id, query, return_context=False):
     print(f"Policy ID : {policy_id}")
     print(f"Question  : {query}")
 
+    retrieval_start = time.perf_counter()
+
     results = db.similarity_search_with_score(
         query,
-        k=4,
+        k=2,
         filter={
             "policy_id": policy_id
         }
     )
+
+    retrieval_time_ms = (time.perf_counter() - retrieval_start) * 1000
 
     print(f"\nRetrieved Chunks: {len(results)}")
 
@@ -83,12 +90,25 @@ Question:
 Answer:
 """
 
+    generation_start = time.perf_counter()
+    
     response = llm.invoke(prompt)
+
+    generation_time_ms = (time.perf_counter() - generation_start) * 1000
+
+    total_time_ms = (time.perf_counter() - total_start) * 1000
+
+    print(f"Retrieval Time : {retrieval_time_ms:.2f} ms")
+    print(f"Generation Time: {generation_time_ms:.2f} ms")
+    print(f"Total Time     : {total_time_ms:.2f} ms")
 
     if return_context:
         return {
             "answer": response,
-            "context": retrieved_context
+            "context": retrieved_context,
+            "retrieval_time_ms": retrieval_time_ms,
+            "generation_time_ms": generation_time_ms,
+            "total_time_ms": total_time_ms
         }
 
     return response

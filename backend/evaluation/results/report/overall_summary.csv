@@ -1,0 +1,8 @@
+Metric,count,mean,std,median,min,max
+Faithfulness,31,0.785,0.346,1.0,0.0,1.0
+Answer Relevancy,31,0.386,0.342,0.5,0.0,1.0
+Contextual Relevancy,31,0.048,0.098,0.0,0.0,0.333
+Retrieval Time (ms),31,965.112,557.411,840.85,342.99,2939.73
+Generation Time (ms),31,3317.062,1174.56,2780.65,1746.48,6989.49
+Total Time (ms),31,5389.026,2111.945,5095.7,2677.1,12992.33
+Response Length (words),31,21.355,26.531,14.0,1.0,130.0

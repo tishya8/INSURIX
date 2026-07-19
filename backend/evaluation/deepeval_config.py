@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-from deepeval.models import GeminiModel, OllamaModel
+from deepeval.models import GeminiModel, OllamaModel, LiteLLMModel
 
 load_dotenv()
 
@@ -30,6 +30,15 @@ if EVALUATOR == "gemini":
     evaluation_model = GeminiModel(
         model=MODEL_NAME,
         api_key=os.getenv("GEMINI_API_KEY")
+    )
+
+elif EVALUATOR == "groq":
+
+    MODEL_NAME = "groq/qwen/qwen3-32b"
+
+    evaluation_model = LiteLLMModel(
+        model=MODEL_NAME,
+        api_key=os.getenv("GROQ_API_KEY")
     )
 
 elif EVALUATOR == "ollama":

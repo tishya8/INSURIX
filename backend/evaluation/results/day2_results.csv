@@ -1,0 +1,22 @@
+Evaluator,Model,Category,Difficulty,Question,Expected Answer,Generated Answer,Faithfulness,Answer Relevancy,Contextual Relevancy,Retrieval Time (ms),Generation Time (ms),Total Time (ms),Response Length (words)
+ollama,qwen2.5:3b,Policy Information,Easy,What is the Insured Declared Value (IDV)?,"₹16,80,000","The Insured Declared Value (IDV) is determined based on the manufacturer's listed selling price adjusted for age depreciation, as specified in the Policy Schedule.",0.0,0.3333333333333333,0.0,476.47,4883.31,5360.31,24
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the manufacturing year of my vehicle?,2024,The manufacturing year of your vehicle is 2024.,1.0,0.5,0.0,753.92,4340.73,5095.7,8
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the fuel type?,Petrol,Petrol,0.9,0.0,0.0,1756.27,2261.67,6607.86,1
+ollama,qwen2.5:3b,Vehicle Information,Easy,Which RTO is my vehicle registered under?,Kolkata (WB06),"The vehicle is registered with the Regional Transport Authority (RTA) in Kolkata, as indicated by the Registration Number WB 06 AB 4582.",1.0,0.0,0.0,1052.72,2530.47,3584.11,22
+ollama,qwen2.5:3b,Coverage,Medium,Does the policy cover earthquake damage?,"Yes, earthquake damage is covered under Own Damage coverage.","Yes, the policy covers earthquake damage under Clause 6.1 of Section I - Detailed Own Damage (OD) Coverage.",0.0,0.5,0.0,1127.91,3066.1,6334.74,18
+ollama,qwen2.5:3b,Coverage,Medium,Does the policy cover riots and strikes?,"Yes, riots and strikes are covered under Own Damage coverage.",No. The policy does not cover riots and strikes as they are excluded under Exclusion 10.2.,0.0,0.3333333333333333,0.0,1026.64,2709.64,5378.7,16
+ollama,qwen2.5:3b,Add-on,Medium,Does this policy include Zero Depreciation Cover?,"Yes, Zero Depreciation Cover is included.","Yes, this policy includes Zero Depreciation Cover.",1.0,0.5,0.25,1034.83,2630.87,5458.85,7
+ollama,qwen2.5:3b,Add-on,Medium,Does the policy provide a Courtesy Car?,Yes. Courtesy Car Add-on is active subject to policy conditions.,"Yes, the policy provides a Courtesy Car benefit if the Courtesy Car Add-on has been purchased and is active under this policy. The courtesy car can be either a temporary replacement vehicle or rental reimbursement while the insured vehicle is being repaired at an authorized network garage. This benefit is limited to 7 consecutive days per claim and 14 days per policy year, subject to the policy terms and conditions.",1.0,0.0,0.14285714285714285,1014.64,4236.23,8328.6,70
+ollama,qwen2.5:3b,Exclusion,Medium,Are personal belongings inside the vehicle covered?,No. Personal belongings inside the vehicle are not covered unless separately insured.,"No. Personal belongings such as mobile phones, laptops, cash, jewellery, luggage, documents, electronic devices, and other personal cargo kept inside the insured vehicle are not covered under this policy unless specifically insured through an endorsed add-on. This exclusion applies even if the insured vehicle itself is stolen.",0.0,0.0,0.25,728.59,3781.02,6010.61,47
+ollama,qwen2.5:3b,Exclusion,Medium,Is damage caused by drunk driving covered?,No. Damage while driving under the influence of alcohol is excluded.,No.,1.0,0.0,0.0,2391.65,2437.56,6296.14,1
+ollama,qwen2.5:3b,Claims,Medium,What documents are required for a theft claim?,"FIR, RC, claim form, original keys, policy document and Non-Traceable Report (where required).","To settle a claim for theft of the insured vehicle, the policyholder must submit:  
+● Original Registration Certificate (RC)  
+● Both keys  
+● Factory Purchase Invoice  
+● Claim Form  
+● Certified FIR issued by the competent court or police authority (where applicable)  
+● Registration Certificate (RC)  
+● Original Vehicle Keys  
+● Duly completed claim form  
+● Any additional documents requested by INSURIX during claim assessment.",0.875,0.6666666666666666,0.0,927.72,4093.94,6794.4,65
+ollama,qwen2.5:3b,Claims,Medium,Can I get cashless settlement outside a network garage?,No. Cashless settlement requires repairs at an authorized network garage.,"No, you cannot get cashless settlement outside a network garage. The policy specifies that the Cashless Settlement Facility is available only at all authorized INSURIX network garage properties.",0.0,0.5,0.25,1092.42,3049.46,5465.51,28

@@ -1,0 +1,4 @@
+Evaluator,Model,Category,Difficulty,Question,Expected Answer,Generated Answer,Faithfulness,Answer Relevancy,Contextual Relevancy,Retrieval Time (ms),Generation Time (ms),Total Time (ms),Response Length (words)
+ollama,qwen2.5:3b,Policy Information,Easy,Who is the policyholder?,Tishya Banerjee,Tishya Banerjee,0.9,0.0,0.0,379.1,466.6,845.88,2
+ollama,qwen2.5:3b,Coverage,Easy,Is theft covered?,"Yes, theft of the insured vehicle is covered up to the applicable IDV, subject to policy terms and conditions.","Yes, theft is covered under the insurance policy.",1.0,0.5,0.0,613.97,3198.66,3813.26,8
+ollama,qwen2.5:3b,Vehicle Information,Easy,Which RTO is my vehicle registered under?,Kolkata (WB06),"The vehicle is registered with the Regional Transport Authority (RTA) in Kolkata, India. The registration number provided is WB 06 AB 4582, and the registration authority is listed as (RTO) Kolkata (WB06).",0.6666666666666666,0.3333333333333333,0.0,472.94,3968.87,4442.13,32

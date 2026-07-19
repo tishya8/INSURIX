@@ -113,6 +113,15 @@ for index, (_, case) in enumerate(test_cases.head(total_cases).iterrows(), start
     if answer_relevancy:
         answer_relevancy.measure(test_case)
 
+    if answer_relevancy:
+        print("\nAnswer Relevancy")
+        print("-" * 40)
+        print(f"Score : {answer_relevancy.score:.2f}")
+
+        print("\nReason")
+        print("-" * 40)
+        print(answer_relevancy.reason)
+
     if contextual_relevancy:
         contextual_relevancy.measure(test_case)
 
@@ -131,6 +140,13 @@ for index, (_, case) in enumerate(test_cases.head(total_cases).iterrows(), start
     print("\nGenerated")
     print("-" * 40)
     print(response["answer"])
+
+    print("\nPerformance")
+    print("-" * 40)
+    print(f"Retrieval Time : {response['retrieval_time_ms']:.2f} ms")
+    print(f"Generation Time: {response['generation_time_ms']:.2f} ms")
+    print(f"Total Time     : {response['total_time_ms']:.2f} ms")
+    print(f"Response Length: {len(response['answer'].split())} words")
 
     print("\nFaithfulness Score")
     print("-" * 40)
@@ -155,6 +171,10 @@ for index, (_, case) in enumerate(test_cases.head(total_cases).iterrows(), start
         "Faithfulness": faithfulness.score if faithfulness else None,
         "Answer Relevancy": answer_relevancy.score if answer_relevancy else None,
         "Contextual Relevancy": contextual_relevancy.score if contextual_relevancy else None,
+        "Retrieval Time (ms)": round(response["retrieval_time_ms"], 2),
+        "Generation Time (ms)": round(response["generation_time_ms"], 2),
+        "Total Time (ms)": round(response["total_time_ms"], 2),
+        "Response Length (words)": len(response["answer"].split()),
     })
     
 
@@ -182,5 +202,37 @@ print("-"*40)
 if ENABLE_FAITHFULNESS: print(f"Faithfulness         : {results_df['Faithfulness'].mean():.2f}")
 if ENABLE_ANSWER_RELEVANCY: print(f"Answer Relevancy     : {results_df['Answer Relevancy'].mean():.2f}")
 if ENABLE_CONTEXTUAL_RELEVANCY: print(f"Context Relevancy    : {results_df['Contextual Relevancy'].mean():.2f}")
+
+print("\nAverage Performance")
+print("-" * 40)
+
+print(f"Retrieval Time (ms) : {results_df['Retrieval Time (ms)'].mean():.2f}")
+print(f"Generation Time (ms): {results_df['Generation Time (ms)'].mean():.2f}")
+print(f"Total Time (ms)     : {results_df['Total Time (ms)'].mean():.2f}")
+print(f"Response Length     : {results_df['Response Length (words)'].mean():.2f} words")
+
+
+# ---------------------------------------
+# Performance Statistics
+# ---------------------------------------
+
+print("\nPerformance Statistics")
+print("-"*40)
+
+print(f"Fastest Retrieval    : {results_df['Retrieval Time (ms)'].min():.2f} ms")
+print(f"Slowest Retrieval    : {results_df['Retrieval Time (ms)'].max():.2f} ms")
+
+print(f"Fastest Generation   : {results_df['Generation Time (ms)'].min():.2f} ms")
+print(f"Slowest Generation   : {results_df['Generation Time (ms)'].max():.2f} ms")
+
+print(f"Fastest Total Time   : {results_df['Total Time (ms)'].min():.2f} ms")
+print(f"Slowest Total Time   : {results_df['Total Time (ms)'].max():.2f} ms")
+
+print("\nStandard Deviation")
+print("-"*40)
+
+print(f"Retrieval Time (ms) : {results_df['Retrieval Time (ms)'].std():.2f}")
+print(f"Generation Time (ms): {results_df['Generation Time (ms)'].std():.2f}")
+print(f"Total Time (ms)     : {results_df['Total Time (ms)'].std():.2f}")
 
 

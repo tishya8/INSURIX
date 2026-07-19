@@ -1,0 +1,4 @@
+Question,Contextual Relevancy,Reason
+Who is the policyholder?,0.0,"The retrieval context contains no statements relevant to the input question about a policyholder, resulting in a score of 0.00."
+Is theft covered?,0.0,"The retrieval context contains no relevant statements regarding whether theft is covered, which explains why the score is 0.00."
+What is the manufacturing year?,0.0,"The statement in the retrieval context is completely irrelevant and does not provide any information related to manufacturing years or vehicle ages, which are necessary for determining a manufacturing year."

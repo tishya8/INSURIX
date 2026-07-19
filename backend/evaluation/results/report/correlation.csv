@@ -1,0 +1,4 @@
+,Response Length (words),Generation Time (ms),Total Time (ms)
+Response Length (words),1.0,0.716,0.539
+Generation Time (ms),0.716,1.0,0.503
+Total Time (ms),0.539,0.503,1.0

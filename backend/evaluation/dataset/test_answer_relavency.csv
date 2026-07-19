@@ -1,0 +1,4 @@
+id,category,question,expected_answer,difficulty
+2,Policy Information,Who is the policyholder?,Tishya Banerjee,Easy
+7,Coverage,Is theft covered?,"Yes, theft of the insured vehicle is covered up to the applicable IDV, subject to policy terms and conditions.",Easy
+20,Vehicle Information,Which RTO is my vehicle registered under?,Kolkata (WB06),Easy
