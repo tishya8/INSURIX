@@ -1,0 +1,4 @@
+Difficulty,Faithfulness,Answer Relevancy,Contextual Relevancy,Retrieval Time (ms),Generation Time (ms),Total Time (ms),Response Length (words),Count
+Easy,0.823,0.538,0.0,998.017,3088.454,5307.025,10.154,13
+Medium,0.775,0.5,0.05,841.698,2790.1,4722.634,22.6,5
+Hard,0.571,0.492,0.171,819.338,4937.572,6218.388,43.4,5

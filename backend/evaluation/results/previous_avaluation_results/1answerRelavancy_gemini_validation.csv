@@ -1,0 +1,3 @@
+Question,Expected Answer,Generated Answer,Answer Relevancy,Reason
+Who is the policyholder?,Tishya Banerjee,Tishya Banerjee,1.0,"The score is 1.00 because the response perfectly and directly addresses the question about who the policyholder is, with absolutely no irrelevant information. Fantastic job!"
+Is theft covered?,"Yes, theft of the insured vehicle is covered up to the applicable IDV, subject to policy terms and conditions.","No, theft is not covered under this policy unless specifically insured through an endorsed add-on.",1.0,The score is 1.00 because the response perfectly and directly addresses the query about theft coverage with absolutely no irrelevant information. Keep up the fantastic work!

@@ -1,0 +1,10 @@
+Metric,Band,Count,Percent
+Faithfulness,Low (0.0-0.5),4,17.4
+Faithfulness,Moderate (0.5-0.8),2,8.7
+Faithfulness,High (0.8-1.0),17,73.9
+Answer Relevancy,Low (0.0-0.5),6,26.1
+Answer Relevancy,Moderate (0.5-0.8),13,56.5
+Answer Relevancy,High (0.8-1.0),4,17.4
+Contextual Relevancy,Low (0.0-0.5),23,100.0
+Contextual Relevancy,Moderate (0.5-0.8),0,0.0
+Contextual Relevancy,High (0.8-1.0),0,0.0

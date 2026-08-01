@@ -1,0 +1,45 @@
+Evaluator,Model,Category,Difficulty,Question,Expected Answer,Generated Answer,Faithfulness,Answer Relevancy,Contextual Relevancy,Retrieval Time (ms),Generation Time (ms),Total Time (ms),Response Length (words)
+ollama,qwen2.5:3b,Policy Information,Easy,What is my policy number?,INSX-MOT-2026-00018452,INSX-MOT-2026-00018452,1,1,0,342.99,3953.43,4297.05,1
+ollama,qwen2.5:3b,Policy Information,Easy,Who is the policyholder?,Tishya Banerjee,Tishya Banerjee,1,0,0,433.41,3720.18,4154.89,2
+ollama,qwen2.5:3b,Policy Information,Easy,What is the policy period?,01 Jan 2026 – 31 Dec 2026,The policy period is one year.,1,0.5,0,755.03,1746.48,2855.43,6
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the engine number?,G4FLGM203491 (or your final value),G4FLGM203491,0.5,1,0,1451.35,2493.22,6576.2,1
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the chassis number?,MALPC81ALNM458271,MALPC81ALNM458271,1,1,0,627.57,2066.75,3714.19,1
+ollama,qwen2.5:3b,Coverage,Easy,Is theft covered?,"Yes, theft of the insured vehicle is covered up to the applicable IDV, subject to policy terms and conditions.","Yes, theft of the insured vehicle is covered up to the applicable IDV, subject to policy terms, deductibles, and submission of required claim documents.",1,0,0,2939.73,3710.77,12992.33,24
+ollama,qwen2.5:3b,Coverage,Easy,Is fire covered?,Yes.,"Yes, fire is covered under Section I (Own Damage) as an accidental external peril.",1,0.5,0,886.9,2571.51,3986.44,14
+ollama,qwen2.5:3b,Coverage,Easy,Does the policy provide third-party liability coverage?,Yes.,"Yes, this policy provides third-party liability coverage. The policy covers statutory protection against the insured's legal liability for bodily injury or property damage caused to third parties arising from the use of the insured vehicle.",0.5,0.6666666667,0,858.59,3337.75,4727.12,35
+ollama,qwen2.5:3b,Coverage,Easy,What is the personal accident cover amount?,"₹15,00,000.00","Rs. 15,00,000",0.8,1,0,851.14,2363.42,4587.55,2
+ollama,qwen2.5:3b,Claims,Easy,What is the compulsory deductible?,"₹5,000 per Own Damage claim.","The compulsory deductible for this insurance policy is ₹5,000 per Own Damage claim.",1,0.5,0,840.85,2700.68,4036.26,13
+ollama,qwen2.5:3b,Claims,Medium,What is the claim notification period?,Within 48 hours.,The claim notification period is 7 days.,1,0.5,0,615.09,2060.29,2677.1,7
+ollama,qwen2.5:3b,Claims,Medium,How long does claim settlement normally take?,7 working days after complete documentation and approval.,The normal time frame for claim settlement is within 7 working days following formal surveyor and invoice approval.,1,0.5,0,604.21,2455.76,3304.12,18
+ollama,qwen2.5:3b,Policy Information,Easy,What is the Insured Declared Value (IDV)?,"₹16,80,000.00","The Insured Declared Value (IDV) is determined based on the manufacturer's listed selling price adjusted for age depreciation, as specified in the Policy Schedule.",0,0.3333333333,0,476.47,4883.31,5360.31,24
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the manufacturing year of my vehicle?,2024,The manufacturing year of your vehicle is 2024.,1,0.5,0,753.92,4340.73,5095.7,8
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the fuel type?,Petrol,Petrol,0.9,0,0,1756.27,2261.67,6607.86,1
+ollama,qwen2.5:3b,Coverage,Medium,Does the policy cover riots and strikes?,"Yes, riots and strikes are covered under Own Damage coverage.",No. The policy does not cover riots and strikes as they are excluded under Exclusion 10.2.,0,0.3333333333,0,1026.64,2709.64,5378.7,16
+ollama,qwen2.5:3b,Add-on,Medium,Does this policy include Zero Depreciation Cover?,"Yes, Zero Depreciation Cover is included.","Yes, this policy includes Zero Depreciation Cover.",1,0.5,0.25,1034.83,2630.87,5458.85,7
+ollama,qwen2.5:3b,Claims,Medium,What documents are required for a theft claim?,"FIR, RC, claim form, original keys, policy document and Non-Traceable Report (where required).","To settle a claim for theft of the insured vehicle, the policyholder must submit:  
+ ● Original Registration Certificate (RC)  
+ ● Both keys  
+ ● Factory Purchase Invoice  
+ ● Claim Form  
+ ● Certified FIR issued by the competent court or police authority (where applicable)  
+ ● Registration Certificate (RC)  
+ ● Original Vehicle Keys  
+ ● Duly completed claim form  
+ ● Any additional documents requested by INSURIX during claim assessment.",0.875,0.6666666667,0,927.72,4093.94,6794.4,65
+ollama,qwen2.5:3b,Coverage,Hard,Is engine damage after waterlogging always covered?,No. Engine damage due to hydrostatic lock is covered only if Engine Protect Add-on is active.,"No, engine damage caused by restarting or cranking the vehicle after water ingress is not covered under this insurance policy. The policy explicitly excludes such damage due to water ingress.",0,0.5,0.3333333333,493.88,5020.05,5564.29,30
+ollama,qwen2.5:3b,Coverage,Hard,Under what conditions is flood damage covered?,"Flood damage is covered up to IDV after deductible, provided the claim is reported within 48 hours and policy conditions are met.","Flood damage caused by the following insured perils is covered up to the applicable Insured Declared Value (IDV) after applying the compulsory deductible: Flood, inundation, waterlogging, or overflowing rivers.",1,0.3333333333,0.25,578.5,5153.81,5732.76,29
+ollama,qwen2.5:3b,Claims,Hard,What should I do immediately after my vehicle is stolen?,"Inform the insurer immediately, lodge an FIR, submit claim documents, original keys and Non-Traceable Report where required.",Notify INSURIX within 48 hours of discovering the theft and lodge a First Information Report (FIR) with the local police.,1,0.5,0,488.86,4743.86,5233.8,20
+ollama,qwen2.5:3b,Claims,Hard,What should I do after an accident to ensure claim approval?,"Notify the insurer within 48 hours, document the damage, cooperate with survey inspection and repair at a network garage for cashless settlement.","After an accident, you should:
+ 
+
+ 1. Ensure the immediate safety of all occupants.
+ 2. Move the vehicle only if legally permitted or required for safety.
+ 3. Take detailed photographs of the vehicle damage and the accident scene.
+ 4. Inform local police immediately if injuries exist.
+ 5. Contact INSURIX customer support within 48 hours to file a digital claim intimation and generate a tracking token.
+ 6. Submit all original vehicle keys, the Registration Certificate (RC), policy document, claim form, and other required documents.
+ 7. Provide a Non-Traceable Report where required by law before settling a total theft claim.
+ 
+
+ Additionally, you should submit personal belongings such as laptops, mobile phones, cash, jewellery, luggage, documents, and other personal effects kept inside the insured vehicle to ensure they are not covered under this policy.",0.8571428571,0.625,0.2727272727,1511.96,6989.49,10135.72,130
+ollama,qwen2.5:3b,Coverage,Hard,Does the policy cover landslide damage?,Yes. Landslide and rockslide are covered under Own Damage coverage.,"No, the policy does not cover landslide damage.",0,0.5,0,1023.49,2780.65,4425.37,8

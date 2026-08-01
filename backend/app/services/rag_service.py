@@ -75,11 +75,16 @@ Use ONLY the information contained in the retrieved policy context.
 
 Rules:
 - Do not use outside knowledge.
-- If multiple chunks contain the answer, combine them.
+- Answer ONLY the user's question.
+- Do not include additional policy details unless they are required to answer the question.
+- If multiple chunks contain the answer, combine only the relevant information.
 - If the answer is not explicitly present, reply exactly:
 "I could not find this information in the policy."
-- Keep answers concise.
+- Keep the answer concise and focused.
+- For factual questions (policyholder, deductible, IDV, manufacturing year, registration number, dates, etc.), return the exact value from the policy without modification.
 - Quote policy values exactly (policy number, deductible, IDV, dates, registration number, etc.) without modifying them.
+- Do not explain your reasoning.
+- Do not repeat the question.
 
 Context:
 {context}
@@ -89,6 +94,8 @@ Question:
 
 Answer:
 """
+
+
 
     generation_start = time.perf_counter()
     

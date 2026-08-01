@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 # ======================================================
 
 INPUT_CSV = "evaluation/results/merged_result_qwen_V2.csv"
-OUTPUT_DIR = "evaluation/results/reportV2"
+OUTPUT_DIR = "evaluation/results/reportV3"
 
 SEMANTIC_METRICS = ["Faithfulness", "Answer Relevancy", "Contextual Relevancy"]
 TIMING_METRICS = ["Retrieval Time (ms)", "Generation Time (ms)", "Total Time (ms)"]
@@ -17,6 +17,10 @@ LENGTH_METRIC = "Response Length (words)"
 ALL_NUMERIC_METRICS = SEMANTIC_METRICS + TIMING_METRICS + [LENGTH_METRIC]
 
 DIFFICULTY_ORDER = ["Easy", "Medium", "Hard"]
+
+PLOT_METRICS = [
+    "Faithfulness"
+]
 
 # Score band thresholds used for the distribution breakdown of the three
 # semantic (0-1) metrics. Adjust to match whatever bar you're evaluating
@@ -89,6 +93,13 @@ for metric in SEMANTIC_METRICS:
 distribution_df = pd.DataFrame(distribution_rows)
 distribution_df.to_csv(os.path.join(OUTPUT_DIR, "score_distribution.csv"), index=False)
 
+# for charts exlude contextual relavancy
+pivot = (
+    distribution_df[
+        distribution_df["Metric"].isin(PLOT_METRICS)
+    ]
+    .pivot(index="Metric", columns="Band", values="Count")
+)
 
 # ======================================================
 # BREAKDOWN BY CATEGORY
@@ -133,9 +144,9 @@ plt.style.use("seaborn-v0_8-whitegrid")
 
 # Chart 1: Mean semantic scores by Category
 fig, ax = plt.subplots(figsize=(9, 5))
-category_breakdown[SEMANTIC_METRICS].plot(kind="bar", ax=ax)
+category_breakdown[PLOT_METRICS].plot(kind="bar", ax=ax)
 ax.set_ylabel("Mean Score (0-1)")
-ax.set_title("Mean Semantic Scores by Question Category")
+ax.set_title("Faithfulness by Question Category")
 ax.set_ylim(0, 1)
 plt.xticks(rotation=40, ha="right")
 plt.tight_layout()
@@ -144,9 +155,9 @@ plt.close(fig)
 
 # Chart 2: Mean semantic scores by Difficulty
 fig, ax = plt.subplots(figsize=(7, 5))
-difficulty_breakdown[SEMANTIC_METRICS].plot(kind="bar", ax=ax)
+difficulty_breakdown[PLOT_METRICS].plot(kind="bar", ax=ax)
 ax.set_ylabel("Mean Score (0-1)")
-ax.set_title("Mean Semantic Scores by Difficulty")
+ax.set_title("Faithfulness by Difficulty")
 ax.set_ylim(0, 1)
 plt.xticks(rotation=0)
 plt.tight_layout()

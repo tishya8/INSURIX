@@ -51,7 +51,7 @@ faithfulness = (
 )
 
 answer_relevancy = (
-    AnswerRelevancyMetric(model=evaluation_model, include_reason=False)
+    AnswerRelevancyMetric(model=evaluation_model, include_reason=True)
     if ENABLE_ANSWER_RELEVANCY else None
 )
 
@@ -75,6 +75,8 @@ if EVALUATOR == "gemini":
     total_cases = min(5, len(test_cases))
 else:
     total_cases = len(test_cases)
+
+
 
 for index, (_, case) in enumerate(test_cases.head(total_cases).iterrows(), start=1):
 

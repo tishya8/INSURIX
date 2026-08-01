@@ -1,0 +1,2 @@
+Question,Expected Answer,Generated Answer,Answer Relevancy,Reason
+What is the fuel type?,Petrol,Petrol,0.0,The score is 0.00 because the response does not provide any relevant information about the fuel type as asked in the input.

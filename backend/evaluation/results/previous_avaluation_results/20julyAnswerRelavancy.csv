@@ -1,0 +1,20 @@
+Evaluator,Model,Category,Difficulty,Question,Expected Answer,Generated Answer,Faithfulness,Answer Relevancy,Contextual Relevancy,Retrieval Time (ms),Generation Time (ms),Total Time (ms),Response Length (words)
+ollama,qwen2.5:3b,Policy Information,Easy,What is my policy number?,INSX-MOT-2026-00018452,HDFC-MOT-2025-7761204,1.0,1.0,0.0,381.26,3551.26,3932.63,1
+ollama,qwen2.5:3b,Policy Information,Easy,Who is the policyholder?,Tishya Banerjee,Tishya Banerjee,0.0,0.0,0.0,918.73,2884.35,3804.07,2
+ollama,qwen2.5:3b,Policy Information,Easy,What is the policy period?,01 Jan 2026 – 31 Dec 2026,7-day notice,1.0,0.0,0.0,428.37,2874.16,3355.28,2
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is my vehicle registration number?,WB 06 AB 4582,WB 06 AB 4582,0.5,1.0,0.0,896.71,2918.51,3816.0,4
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the engine number?,G4FLGM203491 (or your final value),G4FLGM203491,1.0,1.0,0.0,357.41,3142.85,3500.55,1
+ollama,qwen2.5:3b,Vehicle Information,Easy,What is the chassis number?,MALPC81ALNM458271,MALPC81ALNM458271,1.0,1.0,0.0,527.57,3586.12,4114.75,1
+ollama,qwen2.5:3b,Coverage,Easy,Is theft covered?,"Yes, theft of the insured vehicle is covered up to the applicable IDV, subject to policy terms and conditions.","No, theft is not covered under this policy unless specifically insured through an endorsed add-on.",0.0,0.5,0.0,526.69,3315.74,3843.2,15
+ollama,qwen2.5:3b,Coverage,Easy,Is flood damage covered?,"Yes, subject to deductible and policy conditions.","Yes, flood damage is covered.",0.0,0.5,0.0,1317.8,1748.77,3241.51,5
+ollama,qwen2.5:3b,Coverage,Easy,Is fire covered?,Yes.,No.,0.0,0.0,0.0,625.08,1116.41,1841.97,1
+ollama,qwen2.5:3b,Coverage,Easy,Does the policy provide third-party liability coverage?,Yes.,"Yes, the policy provides third-party liability coverage.",0.0,0.5,0.0,764.2,1339.43,2885.89,7
+ollama,qwen2.5:3b,Coverage,Easy,What is the personal accident cover amount?,"₹15,00,000","Rs. 15,00,000",0.8,1.0,0.0,1292.28,1493.96,3390.58,2
+ollama,qwen2.5:3b,Claims,Easy,What is the compulsory deductible?,"₹5,000 per Own Damage claim.","₹5,000 per Own Damage claim",0.0,0.0,0.3333333333333333,982.4,1327.79,2820.94,5
+ollama,qwen2.5:3b,Claims,Medium,What is the claim notification period?,Within 48 hours.,The policyholder must notify INSURIX within 48 hours of discovering the theft.,0.0,0.5,0.0,666.2,1314.06,2071.63,12
+ollama,qwen2.5:3b,Claims,Medium,How long does claim settlement normally take?,7 working days after complete documentation and approval.,"The normal time frame for claim settlement is 7 working days, as funds are processed via electronic NEFT/RTGS credit channels within this period.",1.0,0.3333333333333333,0.0,932.76,1711.99,3281.76,23
+ollama,qwen2.5:3b,Customer Support,Medium,How do I raise a complaint?,"Toll-free number, support email, grievance email.","Use the standardized communication lines provided for mid-term modifications, claims tracking, or escalating an unresolved issue. You can contact Customer Support and Grievance Redressal through the following channels:
+
+1. General Legal Conditions & Contractual Warranties (21)
+2. High-Density Evaluation FAQs (22)",1.0,0.16666666666666666,0.0,1010.21,2142.89,4898.22,41
+ollama,qwen2.5:3b,Add-on Covers,Medium,What is Engine Protect Cover?,"Covers engine and gearbox damage due to hydrostatic lock/fluid ingress, subject to policy terms.","Reimburses overhaul expenses for engine blocks and gearboxes damaged via hydrostatic lock or fluid leakage. Limit: 1 claim per term up to Rs. 25,00,000.",0.0,0.0,0.0,1824.98,2172.7,6614.12,24

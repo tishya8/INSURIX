@@ -8,8 +8,8 @@ import pandas as pd
 # CONFIG
 # ======================================================
 
-INPUT_CSV = "evaluation/results/merged_result_qwen.csv"
-OUTPUT_CSV = "evaluation/results/merged_result_qwen_with_metrics.csv"
+INPUT_CSV = "evaluation/results/merged_result_qwen_V2.csv"
+OUTPUT_CSV = "evaluation/results/merged_result_qwen_with_metrics_V2.csv"
 
 
 # ======================================================

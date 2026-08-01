@@ -1,0 +1,6 @@
+Category,Faithfulness,Answer Relevancy,Contextual Relevancy,Retrieval Time (ms),Generation Time (ms),Total Time (ms),Response Length (words),Count
+Coverage,0.538,0.479,0.073,1082.359,3455.95,5924.32,19.75,8
+Claims,0.955,0.549,0.045,831.448,3840.67,5363.567,42.167,6
+Policy Information,0.75,0.458,0.0,501.975,3575.85,4166.92,8.25,4
+Vehicle Information,0.85,0.625,0.0,1147.278,2790.592,5498.488,2.75,4
+Add-on,1.0,0.5,0.25,1034.83,2630.87,5458.85,7.0,1
