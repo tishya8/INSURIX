@@ -12,7 +12,7 @@ from app.services.rag_service import ask_policy
 # Configuration
 # -------------------------------------------------------
 
-GEMINI_API_KEY = "GEMINI_API_KEY"
+#  add your gemini key GEMINI_API_KEY
 
 # MODEL_NAME = "gemini-flash-latest"
 MODEL_NAME = "qwen2.5:3b"

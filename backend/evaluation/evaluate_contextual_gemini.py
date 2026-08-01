@@ -14,6 +14,7 @@ from deepeval.test_case import LLMTestCase
 
 # GEMINI_API_KEY = ""
 
+
 MODEL_NAME = "gemini-flash-latest"
 
 REQUEST_DELAY = 25      # seconds (≈2.4 RPM)
