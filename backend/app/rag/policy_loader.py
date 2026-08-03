@@ -7,6 +7,7 @@ from app.services.policy_service import (
     get_single_policy_document,
     get_user_active_policy_documents,
 )
+import re
 
 CHROMA_DIR = "./chroma_db"
 
@@ -30,7 +31,16 @@ def _chunk_policy(policy):
         documents = loader.load()
 
         for doc in documents:
-            doc.page_content = doc.page_content.replace("■", "₹")
+            text = doc.page_content
+            text = text.replace("■", "₹")
+
+            # Normalize all whitespace
+            text = re.sub(r"\s+", " ", text).strip()
+
+            doc.page_content = text
+
+        # for doc in documents:
+        #     doc.page_content = doc.page_content.replace("■", "₹")
 
         chunks = splitter.split_documents(documents)
 

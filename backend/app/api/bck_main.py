@@ -3,28 +3,14 @@ INSURIX — FastAPI entry point
 
 Changes from previous version
 ──────────────────────────────
-A.  Accident conversation state tracking added to session_service.
-    After the initial accident guidance response, the session is tagged
-    with `accident_active = True` so that follow-up questions about
-    towing, roadside assistance, replacement car, etc. receive focused
-    answers instead of repeating the full accident guidance.
-
-B.  execute_task() now passes `accident_context` to ask_policy() for
-    POLICY_QUERY intents when the session has an active accident context.
-    This lets rag_service.py choose the correct prompt without changing
-    any planner logic.
-
-C.  Accident context is automatically cleared when:
-    - The user starts a CREATE_CLAIM or TRACK_CLAIM intent (new topic).
-    - The user asks a general policy question unrelated to their accident.
-      (rag_service uses the prompt classifier; clearing is conservative —
-       we keep the context alive for the entire accident follow-up window.)
-
-D.  All existing functionality preserved:
-    - Create Claim multi-step workflow unchanged.
-    - Track Claim unchanged.
-    - General RAG queries unchanged.
-    - Planner unchanged.
+A.  planner_service.py completely rewritten — rule-based, no LLM hallucination.
+B.  handle_pending_state() now detects unrelated new intents while claim
+    creation is in progress and auto-cancels the pending workflow before
+    processing the new request (fixes Issue 6).
+C.  State is always cleared on successful creation OR cancellation (was
+    already correct; confirmed unchanged).
+D.  execute_task() properly resets state so re-starting claim creation after
+    a completed one always begins at WAITING_FOR_INCIDENT_TYPE (fixes Issue 1).
 """
 
 import re
@@ -41,7 +27,7 @@ from app.services.claim_service import (
     get_claim_status_for_policy,
     update_claim_status,
 )
-from app.services.rag_service import ask_policy, is_initial_accident_query
+from app.services.rag_service import ask_policy
 
 from app.services.policy_service import (
     get_user_policies,
@@ -74,7 +60,8 @@ def startup_build_chroma():
         print("[Startup] ChromaDB already exists — skipping rebuild.")
     else:
         print("[Startup] ChromaDB not found — building now…")
-        build_full_vectorstore()
+        # Pending below testing
+        build_full_vectorstore() 
         print("[Startup] ChromaDB ready.")
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -137,37 +124,6 @@ def format_claim(claim: dict) -> str:
     )
 
 # ---------------------------------------------------------------------------
-# Accident context helpers
-# ---------------------------------------------------------------------------
-
-# Session key where we store accident state (separate from claim creation state)
-_ACCIDENT_CTX_KEY = "_accident_ctx"
-
-def _get_accident_context(session_id: str) -> str | None:
-    """
-    Return the accident context string for this session, or None.
-    The context string is a brief summary injected into the RAG prompt.
-    """
-    session = conversation_state.get(session_id, {})
-    return session.get(_ACCIDENT_CTX_KEY)
-
-
-def _set_accident_context(session_id: str, ctx: str):
-    """
-    Store accident context in the session without disturbing claim-creation
-    state (which lives under the "action" / "step" keys).
-    """
-    if session_id not in conversation_state:
-        conversation_state[session_id] = {}
-    conversation_state[session_id][_ACCIDENT_CTX_KEY] = ctx
-
-
-def _clear_accident_context(session_id: str):
-    """Remove accident context from the session."""
-    if session_id in conversation_state:
-        conversation_state[session_id].pop(_ACCIDENT_CTX_KEY, None)
-
-# ---------------------------------------------------------------------------
 # Core task executor
 # ---------------------------------------------------------------------------
 
@@ -181,33 +137,12 @@ def execute_task(
 
     # ── POLICY QUERY ─────────────────────────────────────────────────────
     if intent == "POLICY_QUERY":
-        query = task.get("query", question)
-
-        # Detect whether this is the initial accident guidance request
-        if is_initial_accident_query(query):
-            # Set accident context so follow-ups get focused answers
-            _set_accident_context(
-                session_id,
-                "User was involved in a car accident and received initial emergency guidance."
-            )
-            # No accident_context passed here — this IS the initial response
-            answer = ask_policy(policy_id, normalize_query(query))
-        else:
-            # Pass accident context if session has one (follow-up scenario)
-            accident_ctx = _get_accident_context(session_id)
-            answer = ask_policy(
-                policy_id,
-                normalize_query(query),
-                accident_context=accident_ctx,
-            )
-
+        query  = task.get("query", question)
+        answer = ask_policy(policy_id, normalize_query(query))
         return f"Policy Answer:\n\n{answer}"
 
     # ── TRACK CLAIM ──────────────────────────────────────────────────────
     if intent == "TRACK_CLAIM":
-        # Tracking a claim is a new topic — clear accident context
-        _clear_accident_context(session_id)
-
         claim_id = task.get("claim_id")
         if claim_id is None:
             match = re.search(r"\d+", question)
@@ -225,42 +160,31 @@ def execute_task(
 
     # ── CREATE CLAIM ─────────────────────────────────────────────────────
     if intent == "CREATE_CLAIM":
-        # Starting a claim is a new topic — clear accident context
-        _clear_accident_context(session_id)
-
-        # Always clear any stale claim-creation state before starting fresh
-        # (preserves accident context clearing above, clears claim state)
-        if session_id in conversation_state:
-            conversation_state[session_id].pop("action", None)
-            conversation_state[session_id].pop("step", None)
-            conversation_state[session_id].pop("incident_type", None)
-            conversation_state[session_id].pop("description", None)
+        # Always clear any stale state before starting fresh (fixes Issue 1)
+        conversation_state.pop(session_id, None)
 
         incident_type = (
             task.get("incident_type")
             or detect_incident_type(question)
         )
 
+        # If the planner returned "UNKNOWN" treat it the same as missing
         if incident_type and incident_type != "UNKNOWN":
-            if session_id not in conversation_state:
-                conversation_state[session_id] = {}
-            conversation_state[session_id].update({
+            conversation_state[session_id] = {
                 "action":        "CREATE_CLAIM",
                 "step":          "WAITING_FOR_DESCRIPTION",
                 "incident_type": incident_type,
-            })
+            }
             return (
                 f"Claim creation started.\n\n"
                 f"Incident Type: {incident_type}\n\n"
                 f"Please provide a brief description of the incident."
             )
 
-        if session_id not in conversation_state:
-            conversation_state[session_id] = {}
-        conversation_state[session_id].update({
+        conversation_state[session_id] = {
             "action": "CREATE_CLAIM",
             "step":   "WAITING_FOR_INCIDENT_TYPE",
-        })
+        }
         return (
             "Please select the incident type:\n\n"
             "1. Theft\n"
@@ -285,15 +209,24 @@ def execute_task(
 # ---------------------------------------------------------------------------
 
 def _looks_like_new_intent(question: str) -> bool:
+    """
+    Heuristic: does this message look like a completely new request
+    rather than a step in the claim-creation workflow?
+    Returns True if the planner would produce at least one intent.
+    We check here without calling generate_plan to avoid recursion.
+    """
     lo = question.lower().strip()
 
+    # Explicit track-claim mention
     if re.search(r"\bclaim\s*\d+\b|\btrack\b|\bcheck\s+claim\b", lo):
         return True
 
+    # Explicit create-claim mention (different from yes/no/description)
     create_verbs = r"\b(create|raise|file|submit|open|log|start|report)\b"
     if re.search(create_verbs, lo) and re.search(r"\bclaim\b", lo):
         return True
 
+    # Policy question signals
     policy_signals = r"\b(cover(ed|age)?|deductible|premium|waiting|document|policy)\b"
     question_words = r"^(what|does|is|are|can|how|which|when)"
     if re.search(policy_signals, lo) or re.search(question_words, lo):
@@ -309,9 +242,11 @@ def handle_pending_state(
 ) -> str | None:
     """
     Handle a step in an in-progress claim creation workflow.
-    Only looks at the "action"/"step" keys — accident context keys are
-    separate and do not interfere.
-    Returns None if no claim-creation workflow is active.
+
+    if the user sends an unrelated request while claim
+    creation is pending, the workflow is automatically cancelled and the
+    new request is processed normally (returns None so the main handler
+    takes over).
     """
     if session_id not in conversation_state:
         return None
@@ -326,21 +261,18 @@ def handle_pending_state(
 
     # ── Step 1 — waiting for incident type ───────────────────────────────
     if step == "WAITING_FOR_INCIDENT_TYPE":
+        # Unrelated new intent → cancel and let main handler process
         if _looks_like_new_intent(question):
-            # Cancel claim workflow but preserve accident context if present
-            accident_ctx = pending.get(_ACCIDENT_CTX_KEY)
-            conversation_state[session_id] = {}
-            if accident_ctx:
-                conversation_state[session_id][_ACCIDENT_CTX_KEY] = accident_ctx
-            return None
+            del conversation_state[session_id]
+            return None  # fall through to main handler
 
         incident_type = detect_incident_type(question)
         if incident_type:
-            conversation_state[session_id].update({
+            conversation_state[session_id] = {
                 "action":        "CREATE_CLAIM",
                 "step":          "WAITING_FOR_DESCRIPTION",
                 "incident_type": incident_type,
-            })
+            }
             return "Please provide a brief description of the incident."
 
         return (
@@ -351,19 +283,17 @@ def handle_pending_state(
 
     # ── Step 2 — waiting for description ─────────────────────────────────
     if step == "WAITING_FOR_DESCRIPTION":
+        # Unrelated new intent → cancel and let main handler process
         if _looks_like_new_intent(question):
-            accident_ctx = pending.get(_ACCIDENT_CTX_KEY)
-            conversation_state[session_id] = {}
-            if accident_ctx:
-                conversation_state[session_id][_ACCIDENT_CTX_KEY] = accident_ctx
+            del conversation_state[session_id]
             return None
 
-        conversation_state[session_id].update({
+        conversation_state[session_id] = {
             "action":        "CREATE_CLAIM",
             "step":          "WAITING_FOR_CONFIRMATION",
             "incident_type": pending["incident_type"],
             "description":   question,
-        })
+        }
         return (
             f"Please confirm:\n\n"
             f"Incident Type: {pending['incident_type']}\n"
@@ -379,11 +309,7 @@ def handle_pending_state(
                 pending["incident_type"],
                 pending["description"],
             )
-            # Clear claim state but keep accident context
-            accident_ctx = pending.get(_ACCIDENT_CTX_KEY)
-            conversation_state[session_id] = {}
-            if accident_ctx:
-                conversation_state[session_id][_ACCIDENT_CTX_KEY] = accident_ctx
+            del conversation_state[session_id]
             return (
                 f"Claim created successfully.\n\n"
                 f"Claim ID: {claim_id}\n"
@@ -393,21 +319,16 @@ def handle_pending_state(
             )
 
         if answer_lo in CANCEL_WORDS:
-            accident_ctx = pending.get(_ACCIDENT_CTX_KEY)
-            conversation_state[session_id] = {}
-            if accident_ctx:
-                conversation_state[session_id][_ACCIDENT_CTX_KEY] = accident_ctx
+            del conversation_state[session_id]
             return (
                 "Claim creation cancelled.\n\n"
                 "You can start again by saying: create a claim."
             )
 
+        # Unrelated request while awaiting confirmation → cancel workflow
         if _looks_like_new_intent(question):
-            accident_ctx = pending.get(_ACCIDENT_CTX_KEY)
-            conversation_state[session_id] = {}
-            if accident_ctx:
-                conversation_state[session_id][_ACCIDENT_CTX_KEY] = accident_ctx
-            return None
+            del conversation_state[session_id]
+            return None  # fall through to main handler
 
         return (
             "I did not understand.\n\n"
@@ -473,7 +394,8 @@ def chat(request: ChatRequest):
     question   = request.question.strip()
     session_id = request.session_id
 
-    # 1. Resume multi-turn claim-creation workflow if one is active.
+    # 1. Resume multi-turn conversation if one is in progress.
+    #    Returns None if the user sent an unrelated request → fall through.
     pending_response = handle_pending_state(session_id, policy_id, question)
     if pending_response is not None:
         return {"answer": pending_response}

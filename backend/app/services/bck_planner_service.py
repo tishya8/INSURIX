@@ -73,26 +73,18 @@ _INCIDENT_KEYWORDS: dict[str, list[str]] = {
     "OTHER":    ["other"],
 }
 
-# Policy / coverage question signals — includes accident follow-up topics
-# so "Will I get roadside assistance?" / "Will my car be towed?" are
-# correctly classified as POLICY_QUERY without needing the LLM fallback.
+# Policy / coverage question signals
 _POLICY_SIGNALS = re.compile(
     r"\b(cover(?:ed|age|s)?|policy|deductible|premium|waiting\s+period"
     r"|document[s]?|claim\s+process|what\s+is|does\s+(my|the)\s+policy"
     r"|is\s+.+\s+covered|how\s+(much|long)|eligible|exclusion[s]?"
-    r"|benefit[s]?|include[s]?"
-    r"|tow(?:ing|ed)?|roadside|assistance|replacement\s+car|courtesy\s+car"
-    r"|flatbed|police\s+report|police\s+fir|garage|repair|workshop"
-    r"|take\s+my\s+car|take\s+the\s+car|bring\s+my\s+car"
-    r"|emergency|ambulance|helpline|contact|report\s+the\s+accident)\b",
+    r"|benefit[s]?|include[s]?)\b",
     re.IGNORECASE,
 )
 
-# Question words that strongly suggest a policy question.
-# Includes "will", "do", "would", "where", "should" — all common starters
-# for accident follow-up questions like "Will I get towing?" / "Where should I take my car?"
+# Question words that strongly suggest a policy question
 _QUESTION_WORDS = re.compile(
-    r"\b(what|does|is|are|can|how|which|when|why|will|do|would|where|should|shall)\b",
+    r"\b(what|does|is|are|can|how|which|when|why)\b",
     re.IGNORECASE,
 )
 
@@ -363,17 +355,6 @@ def _rule_based_plan(question: str) -> list:
     policy_questions = _split_policy_questions(question)
     for q in policy_questions:
         plan.append({"intent": "POLICY_QUERY", "query": q})
-
-    # ── 4. Short-circuit: if still empty and the question looks like a
-    #       genuine policy question (matches _QUESTION_WORDS or _POLICY_SIGNALS),
-    #       treat the whole message as a single POLICY_QUERY.
-    #       This catches short follow-ups like "Will I get towing?" or
-    #       "Where should I take my car?" that pass through _split_policy_questions
-    #       as empty because the cleaning step removes too much context.
-    if not plan:
-        q = question.strip()
-        if _POLICY_SIGNALS.search(q) or _QUESTION_WORDS.search(q):
-            plan.append({"intent": "POLICY_QUERY", "query": q})
 
     return plan
 

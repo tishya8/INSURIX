@@ -3,11 +3,6 @@
  *
  * Renders rich bot responses styled to match the Insurix navy/blue design system.
  *
- * Key addition: normaliseText() runs before any parsing. It converts flat
- * single-paragraph LLM output into structured lines so the block-grouper in
- * InfoCard can detect headings, numbered lists, and bullet points even when the
- * backend returns everything as one continuous string.
- *
  * Color palette (matches ChatPage.jsx):
  *   #001F5B  — navy headings
  *   #0057A8  — primary blue
@@ -19,58 +14,6 @@
  *   #718096  — muted text
  *   #1A1A2E  — body text
  */
-
-// ─── Text normaliser ──────────────────────────────────────────────────────────
-//
-// Converts a flat paragraph from the LLM into newline-separated structured
-// text that the block-grouper below can parse correctly.
-//
-// Rules applied in order:
-//   1. If the text already has real newlines → leave it mostly alone (just
-//      clean up runs of blank lines).
-//   2. Insert a blank line before every detected section heading.
-//      Heading pattern: a Title-cased phrase of 1-5 words followed by a colon,
-//      e.g. "Immediate Actions:", "Policy Benefits:", "Emergency Contact:"
-//   3. Insert a newline before every numbered list item "1. ", "2. ", …
-//   4. Insert a newline before every inline bullet "• " or "· "
-//   5. Collapse multiple consecutive spaces.
-
-function normaliseText(raw) {
-  // If the string already has explicit newlines, just clean up excess blanks
-  // and return — the block-grouper will handle it fine.
-  if (/\n/.test(raw)) {
-    return raw.replace(/\n{3,}/g, "\n\n").trim();
-  }
-
-  let text = raw;
-
-  // Step 1 — insert double newline before Section Headings.
-  // A heading is: one or more Title-Case (or ALL-CAPS) words, then a colon,
-  // followed by a space or another capital letter.
-  // We use a look-ahead so the colon itself stays in the text.
-  text = text.replace(
-    /(?<!\d)\s+(?=[A-Z][A-Za-z]*(?:\s+[A-Z][A-Za-z]*){0,4}:(?:\s|[A-Z]))/g,
-    "\n\n"
-  );
-
-  // Step 2 — insert newline before numbered list items "1. " … "99. "
-  // Only when preceded by a space (not at the very start)
-  text = text.replace(/\s+(\d{1,2}\.\s+)/g, "\n$1");
-
-  // Step 3 — insert newline before bullet characters
-  text = text.replace(/\s*([•·]\s*)/g, "\n• ");
-
-  // Step 4 — clean up: collapse multiple spaces, trim each line
-  text = text
-    .split("\n")
-    .map(l => l.replace(/\s{2,}/g, " ").trim())
-    .join("\n");
-
-  // Step 5 — collapse 3+ blank lines down to 2
-  text = text.replace(/\n{3,}/g, "\n\n");
-
-  return text.trim();
-}
 
 // ─── Status Badge ────────────────────────────────────────────────────────────
 
@@ -120,23 +63,51 @@ function KVRow({ label, value, last }) {
 
 const kvRegex = /^([A-Za-z][A-Za-z\s]{0,30}):\s+(.+)$/;
 
+/**
+ * isPrompt: only true when the bot is actively waiting for user input.
+ *
+ * Requires one of:
+ *   • "please select" / "please enter" / "please choose"  — choosing from a list
+ *   • "please provide a … description"                    — freeform input
+ *   • "reply with"                                        — explicit reply cue
+ *
+ * Deliberately excluded:
+ *   • "please select the correct policy or provide a valid claim ID"
+ *     → that's an error/info message, not a prompt for selection
+ *
+ * The key distinguishing rule: a genuine prompt either (a) has a numbered
+ * list of options in the same section, or (b) asks for a "description" /
+ * "details" as the next message. We therefore also require the section to
+ * contain a numbered list OR an explicit "description"/"details" ask.
+ */
 function detectPrompt(text) {
   const lower = text.toLowerCase();
+
+  // Must contain an explicit input request phrase
   const hasSelectOrChoose = /please\s+(select|choose|enter)\b/.test(lower);
   const hasDescriptionAsk = /please\s+provide\s+a\s+(brief\s+)?description/i.test(lower);
   const hasReplyWith      = /\breply\s+with\b/.test(lower);
 
   if (!hasSelectOrChoose && !hasDescriptionAsk && !hasReplyWith) return false;
 
+  // "please select the correct policy" is an error redirect, not a prompt.
+  // Detect by checking if the numbered-list options follow.
   const hasNumberedOptions = /^\s*\d+\.\s+\S/m.test(text);
+
+  // For select/choose: only a prompt if options are present
   if (hasSelectOrChoose && !hasNumberedOptions) return false;
+
+  // For "provide a description": always a prompt (user must type next)
   if (hasDescriptionAsk) return true;
+
+  // For "reply with": always a prompt
   if (hasReplyWith) return true;
+
   return hasNumberedOptions;
 }
 
 function parseSection(raw) {
-  const text = normaliseText(raw.trim());
+  const text = raw.trim();
   const isClaimDetails = /^claim details/i.test(text);
   const isPolicyAnswer = /^policy answer/i.test(text);
   const isPrompt       = detectPrompt(text);
@@ -146,8 +117,8 @@ function parseSection(raw) {
   if (isClaimDetails) body = stripLabel(text, /^claim details\s*:?\s*/i);
   if (isPolicyAnswer) body = stripLabel(text, /^policy answer\s*:?\s*/i);
 
-  const lines     = body.split("\n").filter(l => l.trim() !== "");
-  const kvLines   = lines.filter(l => kvRegex.test(l.trim()));
+  const lines   = body.split("\n").filter(l => l.trim() !== "");
+  const kvLines = lines.filter(l => kvRegex.test(l.trim()));
   const isKVBlock = kvLines.length >= Math.ceil(lines.length * 0.5);
 
   return { text, body, lines, isClaimDetails, isPolicyAnswer, isPrompt, isKVBlock };
@@ -186,37 +157,6 @@ function ClaimCard({ section }) {
 
 function PolicyCard({ section }) {
   const body = section.body.trim();
-  // Only treat the first "SubLabel: content" as a sub-label if the body is
-  // a simple single-line value — not a full multi-line narrative.
-  const lines = body.split("\n").filter(l => l.trim());
-  const isMultiLine = lines.length > 1;
-
-  // Render multi-line Policy Answer through the rich InfoCard renderer instead
-  if (isMultiLine) {
-    return (
-      <div style={{
-        border: "1px solid #C3D3F0", borderLeft: "3px solid #0057A8",
-        borderRadius: "0 9px 9px 0", background: "#fff",
-      }}>
-        <div style={{
-          display: "flex", alignItems: "center", gap: 6,
-          padding: "8px 13px 6px",
-        }}>
-          <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <circle cx="8" cy="8" r="6.5" stroke="#4A9EE0" strokeWidth="1.4"/>
-            <path d="M5 8l2 2 4-4" stroke="#4A9EE0" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.6px", textTransform: "uppercase", color: "#4A6FA5" }}>
-            Policy Answer
-          </span>
-        </div>
-        <div style={{ padding: "0 13px 12px" }}>
-          <RichBody text={body} />
-        </div>
-      </div>
-    );
-  }
-
   const subLabelMatch = body.match(/^([A-Za-z][A-Za-z\s]{0,40}):\s+([\s\S]+)/);
   const subLabel = subLabelMatch ? subLabelMatch[1] : null;
   const content  = subLabelMatch ? subLabelMatch[2].trim() : body;
@@ -243,7 +183,7 @@ function PolicyCard({ section }) {
   );
 }
 
-// ─── Card: Reply Needed ───────────────────────────────────────────────────────
+// ─── Card: Reply Needed (genuine input prompt) ────────────────────────────────
 
 function PromptCard({ text }) {
   const lines      = text.split("\n").filter(l => l.trim());
@@ -253,6 +193,7 @@ function PromptCard({ text }) {
 
   return (
     <div style={{ border: "1px solid #C3D3F0", borderRadius: 9, overflow: "hidden", background: "#fff" }}>
+      {/* Header */}
       <div style={{
         background: "#F0F4FF", borderBottom: "1px solid #C3D3F0",
         padding: "7px 13px", display: "flex", alignItems: "center", gap: 7,
@@ -271,6 +212,7 @@ function PromptCard({ text }) {
           Type your answer ↓
         </span>
       </div>
+      {/* Prose */}
       <div style={{ padding: hasOptions ? "10px 13px 6px" : "10px 13px" }}>
         {prose.map((line, i) => (
           <p key={i} style={{ fontSize: 13, color: "#1A1A2E", margin: "0 0 4px", lineHeight: 1.6 }}>
@@ -278,6 +220,7 @@ function PromptCard({ text }) {
           </p>
         ))}
       </div>
+      {/* Numbered options */}
       {hasOptions && (
         <div style={{ padding: "0 13px 10px", display: "flex", flexDirection: "column" }}>
           {numbered.map((item, i) => {
@@ -289,7 +232,8 @@ function PromptCard({ text }) {
               }}>
                 <span style={{
                   width: 24, height: 24, borderRadius: "50%",
-                  background: "#0057A8", color: "#fff", fontSize: 11, fontWeight: 700,
+                  background: "#0057A8", color: "#fff",
+                  fontSize: 11, fontWeight: 700,
                   display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
                 }}>
                   {i + 1}
@@ -304,138 +248,96 @@ function PromptCard({ text }) {
   );
 }
 
-// ─── RichBody — shared line-by-line renderer ──────────────────────────────────
+// ─── Card: Info / Generic structured response ─────────────────────────────────
 //
-// Parses newline-separated text into typed blocks and renders each one.
-// Used by both InfoCard and the multi-line PolicyCard.
+// Handles free-form responses that have:
+//   • A leading prose line (title/summary)
+//   • Bullet sections (lines starting with •)
+//   • Sub-headers (short lines ending with ":")
+//   • Plain paragraphs
 //
-// Block types:
-//   heading   — Title Case / ALL CAPS words followed by ":" (the colon is stripped)
-//   numbered  — lines starting with "1. ", "2. ", …
-//   bullet    — lines starting with "•", "-", "*"
-//   prose     — everything else
+// Renders as a clean card with a subtle left border so it looks at home
+// alongside the other card types.
 
-function parseBlocks(text) {
+function BulletItem({ text }) {
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "3px 0" }}>
+      <span style={{
+        width: 6, height: 6, borderRadius: "50%",
+        background: "#4A9EE0", flexShrink: 0, marginTop: 6,
+      }} />
+      <span style={{ fontSize: 13, color: "#1A1A2E", lineHeight: 1.6 }}>{text}</span>
+    </div>
+  );
+}
+
+function InfoCard({ text }) {
   const rawLines = text.split("\n");
-  const blocks   = [];
-  let current    = null;
 
-  const flush = () => { if (current) { blocks.push(current); current = null; } };
+  // Group lines into logical blocks
+  const blocks = [];
+  let currentGroup = null;
 
   for (const raw of rawLines) {
     const line = raw.trim();
+    if (!line) {
+      // Blank line → flush current group
+      if (currentGroup) { blocks.push(currentGroup); currentGroup = null; }
+      continue;
+    }
 
-    if (!line) { flush(); continue; }
+    const isBullet      = /^[•\-\*]\s+/.test(line);
+    const isSubHeader   = /^[A-Za-z][^:]{1,40}:$/.test(line);  // e.g. "Currently I can help with:"
+    const isNumbered    = /^\d+\.\s+/.test(line);
 
-    // Heading: title-case / caps phrase ending with ":" (colon at end of line)
-    const isHeading  = /^[A-Z][A-Za-z\s\d×&()/–-]{1,50}:$/.test(line);
-    // Numbered: "1. text", "12. text"
-    const isNumbered = /^\d{1,2}\.\s+\S/.test(line);
-    // Bullet: "• text", "- text", "* text"
-    const isBullet   = /^[•\-\*·]\s+/.test(line);
-
-    if (isHeading) {
-      flush();
-      blocks.push({ type: "heading", text: line.replace(/:$/, "").trim() });
-    } else if (isNumbered) {
-      if (!current || current.type !== "numbered") {
-        flush();
-        current = { type: "numbered", items: [] };
+    if (isBullet || isNumbered) {
+      if (!currentGroup || currentGroup.type !== "list") {
+        if (currentGroup) blocks.push(currentGroup);
+        currentGroup = { type: "list", items: [] };
       }
-      // Strip leading "N. " correctly
-      current.items.push(line.replace(/^\d{1,2}\.\s+/, "").trim());
-    } else if (isBullet) {
-      if (!current || current.type !== "bullet") {
-        flush();
-        current = { type: "bullet", items: [] };
-      }
-      current.items.push(line.replace(/^[•\-\*·]\s+/, "").trim());
+      currentGroup.items.push(line.replace(/^[•\-\*\d+\.]\s+/, "").trim());
+    } else if (isSubHeader) {
+      if (currentGroup) blocks.push(currentGroup);
+      currentGroup = { type: "subheader", text: line.replace(/:$/, "") };
+      blocks.push(currentGroup);
+      currentGroup = null;
     } else {
-      if (!current || current.type !== "prose") {
-        flush();
-        current = { type: "prose", lines: [] };
+      // Plain prose — attach to current prose group or start new one
+      if (!currentGroup || currentGroup.type !== "prose") {
+        if (currentGroup) blocks.push(currentGroup);
+        currentGroup = { type: "prose", lines: [] };
       }
-      current.lines.push(line);
+      currentGroup.lines.push(line);
     }
   }
-  flush();
-  return blocks;
-}
+  if (currentGroup) blocks.push(currentGroup);
 
-function RichBody({ text, firstLineEmphasis = false }) {
-  const blocks = parseBlocks(text);
+  // First prose block becomes the summary line (slightly emphasised)
   const firstProseIdx = blocks.findIndex(b => b.type === "prose");
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+    <div style={{
+      border: "1px solid #C3D3F0",
+      borderLeft: "3px solid #4A9EE0",
+      borderRadius: "0 9px 9px 0",
+      background: "#fff",
+      padding: "12px 14px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+    }}>
       {blocks.map((block, i) => {
-
-        if (block.type === "heading") {
-          return (
-            <p key={i} style={{
-              fontSize: 11, fontWeight: 700, letterSpacing: "0.5px",
-              textTransform: "uppercase", color: "#0057A8",
-              margin: i > 0 ? "4px 0 0" : 0,
-              paddingBottom: 4,
-              borderBottom: "1px solid #E8EFFF",
-            }}>
-              {block.text}
-            </p>
-          );
-        }
-
-        if (block.type === "numbered") {
-          return (
-            <div key={i} style={{ display: "flex", flexDirection: "column" }}>
-              {block.items.map((item, j) => (
-                <div key={j} style={{
-                  display: "flex", alignItems: "flex-start", gap: 10,
-                  padding: "5px 0",
-                  borderBottom: j < block.items.length - 1 ? "1px solid #DDE3EF" : "none",
-                }}>
-                  <span style={{
-                    minWidth: 22, height: 22, borderRadius: "50%",
-                    background: "#0057A8", color: "#fff",
-                    fontSize: 11, fontWeight: 700,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    flexShrink: 0, marginTop: 1,
-                  }}>
-                    {j + 1}
-                  </span>
-                  <span style={{ fontSize: 13, color: "#1A1A2E", lineHeight: 1.6 }}>{item}</span>
-                </div>
-              ))}
-            </div>
-          );
-        }
-
-        if (block.type === "bullet") {
-          return (
-            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-              {block.items.map((item, j) => (
-                <div key={j} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <span style={{
-                    width: 6, height: 6, borderRadius: "50%",
-                    background: "#4A9EE0", flexShrink: 0, marginTop: 7,
-                  }} />
-                  <span style={{ fontSize: 13, color: "#1A1A2E", lineHeight: 1.6 }}>{item}</span>
-                </div>
-              ))}
-            </div>
-          );
-        }
-
         if (block.type === "prose") {
-          const emphasise = firstLineEmphasis && i === firstProseIdx;
+          const isFirst = i === firstProseIdx;
           return (
             <div key={i}>
               {block.lines.map((line, j) => (
                 <p key={j} style={{
-                  fontSize: emphasise && j === 0 ? 14 : 13,
-                  fontWeight: emphasise && j === 0 ? 500 : 400,
-                  color: emphasise && j === 0 ? "#001F5B" : "#1A1A2E",
+                  fontSize: isFirst && j === 0 ? 14 : 13,
+                  fontWeight: isFirst && j === 0 ? 500 : 400,
+                  color: isFirst && j === 0 ? "#001F5B" : "#1A1A2E",
                   margin: j < block.lines.length - 1 ? "0 0 4px" : 0,
-                  lineHeight: 1.65,
+                  lineHeight: 1.6,
                 }}>
                   {line}
                 </p>
@@ -444,24 +346,28 @@ function RichBody({ text, firstLineEmphasis = false }) {
           );
         }
 
+        if (block.type === "subheader") {
+          return (
+            <p key={i} style={{
+              fontSize: 10, fontWeight: 700, letterSpacing: "0.5px",
+              textTransform: "uppercase", color: "#4A6FA5",
+              margin: 0, paddingTop: i > 0 ? 4 : 0,
+            }}>
+              {block.text}
+            </p>
+          );
+        }
+
+        if (block.type === "list") {
+          return (
+            <div key={i} style={{ display: "flex", flexDirection: "column", gap: 2, paddingLeft: 2 }}>
+              {block.items.map((item, j) => <BulletItem key={j} text={item} />)}
+            </div>
+          );
+        }
+
         return null;
       })}
-    </div>
-  );
-}
-
-// ─── InfoCard — wrapper card for generic / help responses ────────────────────
-
-function InfoCard({ text }) {
-  return (
-    <div style={{
-      border: "1px solid #C3D3F0",
-      borderLeft: "3px solid #4A9EE0",
-      borderRadius: "0 9px 9px 0",
-      background: "#fff",
-      padding: "12px 14px",
-    }}>
-      <RichBody text={text} firstLineEmphasis />
     </div>
   );
 }
@@ -478,16 +384,15 @@ function SectionDivider() {
   );
 }
 
-// ─── isStructuredText ────────────────────────────────────────────────────────
-// A response is "structured" if it has paragraph breaks, bullets, numbered
-// items, or heading-style "Title:" lines — after normalisation.
+// ─── Decide whether a section is "structured enough" to use InfoCard ─────────
+// Plain single-sentence responses (no bullets, no sub-headers, no blank lines)
+// are rendered as bare text to avoid over-engineering simple answers.
 
 function isStructuredText(text) {
   return (
-    /\n\s*\n/.test(text) ||
-    /^[•\-\*·]\s+/m.test(text) ||
-    /^\d{1,2}\.\s+\S/m.test(text) ||
-    /^[A-Z][A-Za-z\s\d×&()/–-]{1,50}:$/m.test(text)
+    /\n\s*\n/.test(text) ||          // has paragraph breaks
+    /^[•\-\*]\s+/m.test(text) ||     // has bullet points
+    /^[A-Za-z][^:]{1,40}:$/m.test(text) // has sub-headers
   );
 }
 
