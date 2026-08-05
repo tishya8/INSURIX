@@ -38,7 +38,7 @@ def ask_policy(policy_id, query, return_context=False):
 
     results = db.similarity_search_with_score(
         query,
-        k=2,
+        k=4,
         filter={
             "policy_id": policy_id
         }

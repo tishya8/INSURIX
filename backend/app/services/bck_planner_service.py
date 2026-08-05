@@ -91,41 +91,6 @@ _QUESTION_WORDS = re.compile(
 # Words that split a single message into multiple sub-questions
 _SPLITTERS = re.compile(r"\b(and|also|as\s+well(?:\s+as)?|additionally|plus)\b", re.IGNORECASE)
 
-# First-person distress reports — "I met with an accident", "I had an accident",
-# "I crashed my car", "my car hit a tree", etc. Deliberately narrow: requires a
-# first-person report pattern, NOT just the word "accident" — so policy
-# questions like "Is accident covered?" or "Does the policy cover accidents?"
-# are left alone and still route to POLICY_QUERY.
-_ACCIDENT_GUIDANCE_PATTERN = re.compile(
-    r"\bi\s+(?:just\s+)?(?:met\s+with|had|was\s+in|got\s+into)\s+an?\s+accident\b"
-    r"|\bi\s+(?:just\s+)?crashed\b"
-    r"|\bmy\s+car\s+(?:crashed|hit\s+(?:a|the))\b",
-    re.IGNORECASE,
-)
-
-# Broad question-starter set used ONLY by the last-resort fallback below.
-# Deliberately kept separate from _QUESTION_WORDS (which feeds
-# _split_policy_questions) so this never changes how existing multi-intent
-# splitting or create/track detection behaves — it only matters when
-# nothing else in the planner matched anything at all.
-_QUESTION_STARTERS_BROAD = re.compile(
-    r"^(what|does|do|did|is|are|am|can|could|will|would|should|how|which|when|why)\b",
-    re.IGNORECASE,
-)
-
-
-def _is_unclassified_question(text: str) -> bool:
-    """
-    Last-resort check: does this look like a question, even though it
-    didn't match TRACK_CLAIM / CREATE_CLAIM / any POLICY_QUERY signal?
-    Ends-with-'?' or starts-with-a-question-word — deliberately loose,
-    since this only fires when the alternative is an empty plan.
-    """
-    stripped = text.strip()
-    if not stripped:
-        return False
-    return stripped.endswith("?") or bool(_QUESTION_STARTERS_BROAD.match(stripped))
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -331,12 +296,6 @@ def _rule_based_plan(question: str) -> list:
     """
     plan: list[dict] = []
 
-    # ── 0. ACCIDENT_GUIDANCE — first-person distress report, short-circuits ─
-    # the rest of the planner. This must run before POLICY_QUERY splitting,
-    # since "What should I do?" would otherwise match the question-word regex.
-    if _ACCIDENT_GUIDANCE_PATTERN.search(question):
-        return [{"intent": "ACCIDENT_GUIDANCE"}]
-
     # ── 1. TRACK_CLAIM — one intent per claim ID ──────────────────────────
     claim_ids = _extract_all_claim_ids(question)
     for cid in claim_ids:
@@ -351,15 +310,6 @@ def _rule_based_plan(question: str) -> list:
     policy_questions = _split_policy_questions(question)
     for q in policy_questions:
         plan.append({"intent": "POLICY_QUERY", "query": q})
-
-    # ── 4. Fallback — nothing matched above, but it's still question-shaped
-    # ("Will my car be towed?", "Do I get roadside assistance?"). Route the
-    # whole message to POLICY_QUERY instead of returning an empty plan.
-    # This only runs when `plan` is still empty, so it can never override
-    # or duplicate a TRACK_CLAIM/CREATE_CLAIM/POLICY_QUERY match above, and
-    # it also pre-empts the flakier LLM fallback for these cases.
-    if not plan and _is_unclassified_question(question):
-        plan.append({"intent": "POLICY_QUERY", "query": question.strip()})
 
     return plan
 

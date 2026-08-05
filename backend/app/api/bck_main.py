@@ -124,79 +124,6 @@ def format_claim(claim: dict) -> str:
     )
 
 # ---------------------------------------------------------------------------
-# Accident guidance response builder
-# ---------------------------------------------------------------------------
-
-_ACCIDENT_SAFETY_STEPS = (
-    "1. Move the vehicle off active traffic lanes if possible and switch on hazard lights.\n"
-    "2. If anyone is injured, call 108 (Ambulance) or 112 (Emergency) before anything else.\n"
-    "3. Photograph the damage, the other vehicle's plate (if any), and the scene.\n"
-    "4. If there is third-party injury or property damage, file a police GD/FIR.\n"
-    "5. Do not attempt repairs yourself — hand the vehicle over at an authorized garage."
-)
-
-_ACCIDENT_BENEFITS_FALLBACK = (
-    "- Emergency flatbed towing is generally available for accident-damaged vehicles.\n"
-    "- A courtesy replacement car may be provided if repairs take longer than a few days.\n"
-    "- A compulsory deductible applies to each Own Damage claim — check your policy schedule for the exact amount."
-)
-
-# The RAG prompt (rag_service.py) instructs the LLM to emit this exact
-# sentence when it can't answer. On multi-part questions the model may
-# answer some parts and still append this phrase for the part it couldn't
-# find — so we can't treat "phrase present anywhere" as "response useless".
-# Instead: strip the phrase out and check how much real content is left.
-_NO_INFO_PHRASE = re.compile(
-    r"i\s+could\s+not\s+find\s+this\s+information\s+in\s+the\s+policy\.?",
-    re.IGNORECASE,
-)
-_MIN_MEANINGFUL_CHARS = 15  # residual shorter than this ⇒ treat as no real answer
-
-
-def _has_meaningful_content(benefits: str | None) -> bool:
-    """True if `benefits` contains real information beyond the
-    'could not find' boilerplate (which may appear alongside real answers
-    for other parts of a multi-topic question)."""
-    if not benefits or not benefits.strip():
-        return False
-    residual = _NO_INFO_PHRASE.sub("", benefits).strip(" .,\n-")
-    return len(residual) >= _MIN_MEANINGFUL_CHARS
-
-
-def build_accident_guidance(policy_id: int) -> str:
-    """
-    Structured first-response for a reported accident:
-    empathetic opening + static safety checklist + one RAG lookup for
-    policy-specific benefits (towing / courtesy car / deductible) + CTA.
-    Falls back to generic benefit text if the RAG call fails or finds nothing,
-    so this never breaks the demo even if the vector store / LLM hiccups.
-    """
-    try:
-        benefits = ask_policy(
-            policy_id,
-            "What towing assistance, courtesy replacement car, and deductible apply "
-            "for an accidental damage claim?",
-        )
-    except Exception as e:
-        print(f"[accident_guidance] RAG lookup failed: {e}")
-        benefits = None
-
-    if not _has_meaningful_content(benefits):
-        benefits = _ACCIDENT_BENEFITS_FALLBACK
-
-    return (
-        "I'm sorry to hear you've been in an accident — let's get you and your vehicle sorted out.\n\n"
-        "Immediate steps:\n"
-        f"{_ACCIDENT_SAFETY_STEPS}\n\n"
-        "Your policy benefits that may apply:\n"
-        f"{benefits}\n\n"
-        "Need help right now?\n"
-        "Call the INSURIX 24/7 Emergency Helpline or message the WhatsApp Assistance Bot to dispatch towing.\n\n"
-        "Would you like to create a claim for this accident?\n"
-        "Type 'Create a claim' to begin your claim."
-    )
-
-# ---------------------------------------------------------------------------
 # Core task executor
 # ---------------------------------------------------------------------------
 
@@ -207,15 +134,6 @@ def execute_task(
     question:   str,
 ) -> str:
     intent = task.get("intent")
-
-    # ── ACCIDENT GUIDANCE ────────────────────────────────────────────────
-    if intent == "ACCIDENT_GUIDANCE":
-        # Hint the incident type for a subsequent "create a claim" message,
-        # without starting the actual claim workflow yet (user hasn't
-        # confirmed they want to file one). handle_pending_state ignores
-        # this dict since it has no "action" key.
-        conversation_state[session_id] = {"hint_incident_type": "ACCIDENT"}
-        return build_accident_guidance(policy_id)
 
     # ── POLICY QUERY ─────────────────────────────────────────────────────
     if intent == "POLICY_QUERY":
@@ -242,17 +160,12 @@ def execute_task(
 
     # ── CREATE CLAIM ─────────────────────────────────────────────────────
     if intent == "CREATE_CLAIM":
-        # Always clear any stale state before starting fresh (fixes Issue 1).
-        # Capture it first so a prior ACCIDENT_GUIDANCE hint isn't lost.
-        prior_state = conversation_state.pop(session_id, None)
-        hinted_incident_type = (
-            prior_state.get("hint_incident_type") if prior_state else None
-        )
+        # Always clear any stale state before starting fresh (fixes Issue 1)
+        conversation_state.pop(session_id, None)
 
         incident_type = (
             task.get("incident_type")
             or detect_incident_type(question)
-            or hinted_incident_type
         )
 
         # If the planner returned "UNKNOWN" treat it the same as missing
