@@ -36,50 +36,6 @@ except Exception:
     _llm = None
     _LLM_AVAILABLE = False
 
-# ── Optional semantic classifier (used as fallback only) ─────────────────────
-# Reuses the SAME embedding model instance already loaded by rag_service.py
-# for policy retrieval — no new model, no duplicate load. Guarded exactly
-# like the LLM fallback above: if anything here fails (module not
-# importable yet, Chroma dir missing in a test env, etc.) we silently drop
-# back to the heuristic-only fallback that already existed.
-try:
-    import numpy as np
-    from app.services.rag_service import embedding_model as _semantic_embedder
-
-    # Canonical phrasings covering the REQUEST SHAPES people use to ask
-    # about policy details — interrogative, imperative ("give me" / "tell
-    # me" / "explain" / "describe"), and open-ended — not specific
-    # insurance keywords. This is what lets "Give me the details of towing
-    # service." match even though it shares no keyword with "Is towing
-    # covered?".
-    _POLICY_QUERY_EXEMPLARS = [
-        "Is towing covered under my policy?",
-        "Give me the details of the towing service.",
-        "Tell me about the roadside assistance benefit.",
-        "Explain the courtesy replacement car coverage.",
-        "Describe the exclusions under this policy.",
-        "How does the claim settlement process work?",
-        "What benefits do I get for accidental damage?",
-        "What is the deductible on my policy?",
-        "I'd like to know more about my personal accident cover.",
-        "Walk me through what my policy covers.",
-    ]
-
-    _exemplar_vecs = np.array(_semantic_embedder.embed_documents(_POLICY_QUERY_EXEMPLARS))
-    _exemplar_vecs = _exemplar_vecs / np.linalg.norm(_exemplar_vecs, axis=1, keepdims=True)
-    _SEMANTIC_AVAILABLE = True
-except Exception as e:
-    _semantic_embedder = None
-    _exemplar_vecs = None
-    _SEMANTIC_AVAILABLE = False
-    print(f"[planner] Semantic fallback unavailable, using heuristic-only fallback: {e}")
-
-# Cosine-similarity threshold for the semantic fallback. Tune this against
-# real traffic before the viva — print below shows the score for every
-# call so you can calibrate it (e.g. try 5-10 real and 5-10 unrelated
-# messages and see where the scores separate).
-_SEMANTIC_SIMILARITY_THRESHOLD = 0.55
-
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 # Verbs that signal the user WANTS to create a new claim.
@@ -169,28 +125,6 @@ def _is_unclassified_question(text: str) -> bool:
     if not stripped:
         return False
     return stripped.endswith("?") or bool(_QUESTION_STARTERS_BROAD.match(stripped))
-
-
-def _semantic_looks_like_policy_query(text: str) -> bool:
-    """
-    Second-tier last-resort check: is this message semantically close to a
-    known POLICY_QUERY phrasing, even with zero keyword/shape overlap
-    (e.g. imperative "Give me the details of..." rather than a question)?
-    Only called when _is_unclassified_question() already returned False,
-    so it never runs on the fast path.
-    """
-    if not _SEMANTIC_AVAILABLE:
-        return False
-    try:
-        vec = np.array(_semantic_embedder.embed_query(text))
-        vec = vec / np.linalg.norm(vec)
-        scores = _exemplar_vecs @ vec
-        best = float(scores.max())
-        print(f"[planner] semantic fallback best similarity: {best:.3f}")
-        return best >= _SEMANTIC_SIMILARITY_THRESHOLD
-    except Exception as e:
-        print(f"[planner] semantic fallback error: {e}")
-        return False
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -418,17 +352,13 @@ def _rule_based_plan(question: str) -> list:
     for q in policy_questions:
         plan.append({"intent": "POLICY_QUERY", "query": q})
 
-    # ── 4. Fallback — nothing matched above. Two tiers, cheapest first:
-    #    (a) heuristic: question-shaped ("Will my car be towed?")
-    #    (b) semantic: request-shaped but not interrogative
-    #        ("Give me the details of towing service.")
-    # Both only run when `plan` is still empty, so neither can override or
-    # duplicate a TRACK_CLAIM/CREATE_CLAIM/POLICY_QUERY match above, and
-    # together they pre-empt the flakier LLM fallback for these cases.
-    if not plan and (
-        _is_unclassified_question(question)
-        or _semantic_looks_like_policy_query(question)
-    ):
+    # ── 4. Fallback — nothing matched above, but it's still question-shaped
+    # ("Will my car be towed?", "Do I get roadside assistance?"). Route the
+    # whole message to POLICY_QUERY instead of returning an empty plan.
+    # This only runs when `plan` is still empty, so it can never override
+    # or duplicate a TRACK_CLAIM/CREATE_CLAIM/POLICY_QUERY match above, and
+    # it also pre-empts the flakier LLM fallback for these cases.
+    if not plan and _is_unclassified_question(question):
         plan.append({"intent": "POLICY_QUERY", "query": question.strip()})
 
     return plan

@@ -185,14 +185,13 @@ def build_accident_guidance(policy_id: int) -> str:
         benefits = _ACCIDENT_BENEFITS_FALLBACK
 
     return (
-        "I'm sorry to hear about your accident. I hope you and everyone involved are safe. I'm here to guide you through the immediate steps and explain the support available under your policy.\n\n"
+        "I'm sorry to hear you've been in an accident — let's get you and your vehicle sorted out.\n\n"
         "Immediate steps:\n"
         f"{_ACCIDENT_SAFETY_STEPS}\n\n"
         "Your policy benefits that may apply:\n"
         f"{benefits}\n\n"
         "Need help right now?\n"
-        "Call the INSURIX 24/7 Emergency Helpline to request immediate roadside assistance or towing.\n\n"
-        "Toll-Free: 1800-123-4567 (24/7 Customer Support)\n"
+        "Call the INSURIX 24/7 Emergency Helpline or message the WhatsApp Assistance Bot to dispatch towing.\n\n"
         "Would you like to create a claim for this accident?\n"
         "Type 'Create a claim' to begin your claim."
     )
